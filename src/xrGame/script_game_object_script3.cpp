@@ -538,6 +538,10 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("get_luminocity", &CScriptGameObject::GetLuminocity)
 		.def("set_health_ex", &CScriptGameObject::SetHealthEx)
 		.def("force_set_position", SAFE_WRAP(&CScriptGameObject::ForceSetPosition))
+		// Anomaly Co-op
+		.def("net_puppet", SAFE_WRAP(&CScriptGameObject::NetPuppet))
+		.def("net_puppet_push", SAFE_WRAP(&CScriptGameObject::NetPuppetPush))
+		.def("net_puppet_active", SAFE_WRAP(&CScriptGameObject::NetPuppetActive))
 		.def("force_set_angle", SAFE_WRAP(&CScriptGameObject::ForceSetAngle))
 		.def("angle", SAFE_WRAP(&CScriptGameObject::Angle))
 		.def("force_set_rotation", SAFE_WRAP(&CScriptGameObject::ForceSetRotation))

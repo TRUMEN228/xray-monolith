@@ -20,6 +20,9 @@ extern class_<CScriptGameObject> script_register_game_object1(class_<CScriptGame
 extern class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject> &&);
 extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScriptGameObject> &&);
 
+// Anomaly Co-op: lets the mod know these exes have its engine side, and which revision
+static int coop_engine_version() { return 1; }
+
 #pragma optimize("s",on)
 void CScriptGameObject::script_register(lua_State* L)
 {
@@ -194,6 +197,7 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("buy_condition", (void (*)(float, float))(&::buy_condition)),
 		def("sell_condition", (void (*)(CScriptIniFile*, LPCSTR))(&::sell_condition)),
 		def("sell_condition", (void (*)(float, float))(&::sell_condition)),
-		def("show_condition", &::show_condition)
+		def("show_condition", &::show_condition),
+		def("coop_engine_version", &::coop_engine_version)
 	];
 }
