@@ -1,0 +1,52 @@
+# Anomaly Co-op: build the exes the co-op launcher uses (DX11, with and without AVX) on every push to `coop`.
+# The upstream MSBuild workflow builds 16 configurations and publishes a release; this one only uploads the exes.
+
+name: Co-op build
+
+on:
+  push:
+    branches: [ "coop" ]
+    paths: [ "src/**", ".github/workflows/coop.yml" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.buildconf }}
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        buildconf: ["DX11-AVX", "DX11"]
+
+    steps:
+    - name: Configure Pagefile
+      uses: al-cheb/configure-pagefile-action@v1.3
+      with:
+        minimum-size: 8GB
+        maximum-size: 8GB
+        disk-root: "C:"
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: setup-msbuild
+      uses: microsoft/setup-msbuild@v1.3.1
+      with:
+        msbuild-architecture: "x64"
+
+    - name: Build ${{ matrix.buildconf }}
+      run: msbuild /m /p:Configuration=${{ matrix.buildconf }} src/engine-vs2022.sln
+
+    - name: Upload exe
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: coop_${{ matrix.buildconf }}_exe
+        path: ./_build/_game/bin_dbg/*.exe
+        if-no-files-found: error
+        retention-days: 14
