@@ -1,12 +1,13 @@
 # Anomaly Co-op: build the exes the co-op launcher uses (DX11, with and without AVX) on every push to `coop`.
-# The upstream MSBuild workflow builds 16 configurations and publishes a release; this one only uploads the exes.
+# A tag coop-engine-N also publishes them, with the modded exes' gamedata packed, as a release the launcher installs.
+# The upstream MSBuild workflow builds 16 configurations and publishes a release on every push; it is disabled here.
 
 name: Co-op build
 
 on:
   push:
     branches: [ "coop" ]
-    paths: [ "src/**", ".github/workflows/coop.yml" ]
+    tags: [ "coop-engine-*" ]
   workflow_dispatch:
 
 permissions:
@@ -50,3 +51,36 @@ jobs:
         path: ./_build/_game/bin_dbg/*.exe
         if-no-files-found: error
         retention-days: 14
+
+  release:
+    name: release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/coop-engine-')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Pack gamedata
+      run: |
+        New-Item -Path ./compressor/gamedata -ItemType Directory -Force | Out-Null
+        Copy-Item -Path ./gamedata/* -Destination ./compressor/gamedata -Recurse -Force
+        cd ./compressor
+        ./xrCompress.exe gamedata -ltx build_patch.ltx -pack -strong -1024 -db
+        Move-Item gamedata.db0 ../coop_engine_gamedata.db0
+
+    - name: Download exes
+      uses: actions/download-artifact@v4.1.8
+
+    - name: Publish
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        Move-Item coop_DX11-AVX_exe/AnomalyDX11AVX.exe .
+        Move-Item coop_DX11_exe/AnomalyDX11.exe .
+        $n = "${{ github.ref_name }}".Replace("coop-engine-", "")
+        $notes = "Движок для Anomaly Co-op, ревизия $n. Ставится из лаунчера кооператива: Опции → «Улучшенный движок». Вручную ставить не нужно."
+        gh release create "${{ github.ref_name }}" AnomalyDX11AVX.exe AnomalyDX11.exe coop_engine_gamedata.db0 --title "Co-op Engine $n" --notes $notes
