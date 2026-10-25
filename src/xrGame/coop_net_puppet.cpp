@@ -17,7 +17,7 @@ namespace
 	const float delay_rate = 0.1f; // the delay changes by at most this share of real time: playback speeds up or slows down by 10%
 }
 
-CCoopNetPuppet::CCoopNetPuppet(u32 delay) : m_fixed_delay(delay)
+CCoopNetPuppet::CCoopNetPuppet(u32 delay) : m_fixed_delay(delay), m_body(255)
 {
 	reset();
 }
@@ -37,6 +37,7 @@ void CCoopNetPuppet::reset()
 	m_last_time = 0;
 	m_last_valid = false;
 	m_speed = 0.f;
+	m_vel.set(0.f, 0.f, 0.f);
 }
 
 void CCoopNetPuppet::push(const Fvector& p, u32 remote_time)
@@ -171,6 +172,8 @@ bool CCoopNetPuppet::sample(Fvector& out)
 		d.y = 0.f;
 		float v = d.magnitude() / (float(now - m_last_time) / 1000.f);
 		m_speed = m_speed * 0.8f + v * 0.2f;
+		d.div(float(now - m_last_time) / 1000.f);
+		m_vel.mul(0.8f).mad(d, 0.2f);
 	}
 	m_last = out;
 	m_last_time = now;

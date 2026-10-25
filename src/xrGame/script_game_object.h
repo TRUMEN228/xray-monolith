@@ -1191,6 +1191,7 @@ public:
 	void NetPuppetPush(Fvector pos, u32 remote_time);
 	bool NetPuppetActive();
 	u32 NetPuppetDelay();
+	void NetPuppetBody(u8 body);
 	void ForceSetRotation(Fvector rot, bool enable = true);
 	void ForceSetAngle(Fvector ang, bool bActivate);
 	Fvector Angle();

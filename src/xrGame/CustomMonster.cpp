@@ -601,6 +601,25 @@ void CCustomMonster::net_puppet_push(const Fvector& position, u32 remote_time)
 		m_net_puppet->push(position, remote_time);
 }
 
+bool CCustomMonster::net_puppet_velocity(Fvector& velocity) const
+{
+	if (!m_net_puppet)
+		return false;
+	velocity = m_net_puppet->velocity();
+	return true;
+}
+
+u8 CCustomMonster::net_puppet_body() const
+{
+	return m_net_puppet ? m_net_puppet->body() : u8(255);
+}
+
+void CCustomMonster::net_puppet_set_body(u8 body)
+{
+	if (m_net_puppet)
+		m_net_puppet->set_body(body);
+}
+
 u32 CCustomMonster::net_puppet_delay() const
 {
 	return m_net_puppet ? m_net_puppet->delay() : 0;

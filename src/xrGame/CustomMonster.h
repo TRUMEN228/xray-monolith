@@ -57,6 +57,9 @@ public:
 	bool net_puppet_active() const { return !!m_net_puppet; }
 	float net_puppet_speed() const;
 	u32 net_puppet_delay() const;
+	bool net_puppet_velocity(Fvector& velocity) const;
+	u8 net_puppet_body() const;
+	void net_puppet_set_body(u8 body);
 
 private:
 	u32 m_client_update_delta;
