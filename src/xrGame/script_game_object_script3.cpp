@@ -547,6 +547,8 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("net_actor_state", SAFE_WRAP(&CScriptGameObject::NetActorState))
 		.def("net_actor_mstate", SAFE_WRAP(&CScriptGameObject::NetActorMState))
 		.def("net_actor_angles", SAFE_WRAP(&CScriptGameObject::NetActorAngles))
+		.def("net_actor_fire", SAFE_WRAP(&CScriptGameObject::NetActorFire))
+		.def("net_actor_reload", SAFE_WRAP(&CScriptGameObject::NetActorReload))
 		.def("force_set_angle", SAFE_WRAP(&CScriptGameObject::ForceSetAngle))
 		.def("angle", SAFE_WRAP(&CScriptGameObject::Angle))
 		.def("force_set_rotation", SAFE_WRAP(&CScriptGameObject::ForceSetRotation))

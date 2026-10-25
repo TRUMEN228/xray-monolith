@@ -113,6 +113,15 @@ SPickParam& CActor::GetPick()
 
 void CActor::g_fireParams(const CHudItem* pHudItem, Fvector& fire_pos, Fvector& fire_dir)
 {
+	if (m_coop_net)
+	{
+		// the partner's actor fires from its muzzle where the partner looks, not along this player's view
+		CWeapon* weapon = smart_cast<CWeapon*>(inventory().ActiveItem());
+		fire_pos = weapon ? weapon->get_LastFP() : Fvector().set(Position()).add(Fvector().set(0.f, 1.5f, 0.f));
+		fire_dir.setHP(unaffected_r_torso.yaw, -unaffected_r_torso.pitch);
+		return;
+	}
+
 	SPickParam& pp = GetPick();
 
 	attachable_hud_item* item_0 = g_player_hud->attached_item(0);

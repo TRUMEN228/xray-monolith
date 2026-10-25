@@ -692,7 +692,11 @@ BOOL CActor::net_Spawn(CSE_Abstract* DC)
 	m_dwILastUpdateTime = 0;
 
 	if (m_coop_net_section && g_actor != this)
+	{
 		m_coop_net = xr_new<CCoopNetPuppet>(0);
+		// seen from outside: the whole body and the weapon in hands, never the first person legs
+		cam_active = eacLookAt;
+	}
 
 	if (IsGameTypeSingle() && !m_coop_net)
 	{

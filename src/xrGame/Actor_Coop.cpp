@@ -8,6 +8,9 @@
 #include "coop_net_puppet.h"
 #include "CharacterPhysicsSupport.h"
 #include "PHMovementControl.h"
+#include "Inventory.h"
+#include "Weapon.h"
+#include "xr_level_controller.h"
 
 void CActor::coop_net_push(const Fvector& position, u32 remote_time)
 {
@@ -40,6 +43,30 @@ void CActor::coop_net_update(float dt)
 	g_Orientate(mstate_real, dt);
 	g_SetAnimation(mstate_real);
 	mstate_old = mstate_real;
+	coop_net_weapon();
+}
+
+// shots are shown only: the hits they make here do not count, the partner's game sends its own
+void CActor::coop_net_weapon()
+{
+	CWeapon* weapon = smart_cast<CWeapon*>(inventory().ActiveItem());
+	if (!weapon)
+		return;
+	if (m_coop_fire)
+	{
+		if (weapon->GetAmmoElapsed() < 1 && weapon->GetState() != CWeapon::eReload)
+			weapon->SetAmmoElapsed(weapon->GetAmmoMagSize());
+		if (!weapon->IsWorking())
+			weapon->Action(kWPN_FIRE, CMD_START);
+	}
+	else if (weapon->IsWorking())
+		weapon->Action(kWPN_FIRE, CMD_STOP);
+}
+
+void CActor::coop_net_reload()
+{
+	if (CWeapon* weapon = smart_cast<CWeapon*>(inventory().ActiveItem()))
+		weapon->Action(kWPN_RELOAD, CMD_START);
 }
 
 // every frame: where the partner is now, by the network

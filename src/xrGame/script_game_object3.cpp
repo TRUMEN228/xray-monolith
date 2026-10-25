@@ -2563,6 +2563,19 @@ Fvector CScriptGameObject::NetActorAngles()
 	return actor ? actor->coop_net_angles() : Fvector().set(0.f, 0.f, 0.f);
 }
 
+void CScriptGameObject::NetActorFire(bool on)
+{
+	if (CActor* actor = smart_cast<CActor*>(&object()))
+		actor->coop_net_fire(on);
+}
+
+void CScriptGameObject::NetActorReload()
+{
+	CActor* actor = smart_cast<CActor*>(&object());
+	if (actor && actor->coop_net_actor())
+		actor->coop_net_reload();
+}
+
 void CScriptGameObject::NetPuppetBody(u8 body)
 {
 	if (CCustomMonster* monster = smart_cast<CCustomMonster*>(&object()))

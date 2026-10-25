@@ -1004,7 +1004,9 @@ bool CHudItem::ParentIsActor()
 	if (!EA)
 		return false;
 
-	return !!EA->cast_actor();
+	// Anomaly Co-op: the partner's actor holds its weapon like an NPC, it must not touch this player's HUD
+	CActor* A = EA->cast_actor();
+	return A && !A->coop_net_actor();
 }
 
 void CHudItem::ApplyAimModifiers(Fmatrix& matrix)

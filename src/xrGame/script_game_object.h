@@ -1195,6 +1195,8 @@ public:
 	void NetActorState(u32 mstate, Fvector angles);
 	u32 NetActorMState();
 	Fvector NetActorAngles();
+	void NetActorFire(bool on);
+	void NetActorReload();
 	void ForceSetRotation(Fvector rot, bool enable = true);
 	void ForceSetAngle(Fvector ang, bool bActivate);
 	Fvector Angle();
