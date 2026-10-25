@@ -53,6 +53,16 @@ void CCoopNetPuppet::push(const Fvector& p, u32 remote_time)
 				m_keys.clear();
 				m_last_valid = false;
 			}
+			else if (gap > 3.f * m_interval + 100.f)
+			{
+				// nothing came for a while (the sender only reports what moves): it stood still until
+				// just before this key, so start moving from the old spot one step earlier, not across the pause
+				key hold;
+				hold.t = remote_time - u32(m_interval);
+				hold.p = m_keys.back().p;
+				if (hold.t > m_keys.back().t)
+					m_keys.push_back(hold);
+			}
 		}
 	}
 
