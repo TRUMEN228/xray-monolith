@@ -32,7 +32,9 @@ private:
 
 	xr_deque<key> m_keys;
 	u32 m_fixed_delay; // ms, 0 = adapt to the link
-	float m_delay; // playback delay in use, ms
+	float m_delay; // playback delay in use, ms (for display)
+	double m_lag; // local time minus the sender's time being shown: clock difference plus delay, eased
+	bool m_lag_valid;
 	float m_late; // how late keys arrive past the fastest one, ms (peak, slowly decaying)
 	float m_interval; // between keys, ms (smoothed)
 	s64 m_offset; // local time minus sender's time, the smallest seen lately

@@ -24,6 +24,8 @@ void CCoopNetPuppet::reset()
 {
 	m_keys.clear();
 	m_delay = m_fixed_delay ? float(m_fixed_delay) : start_delay;
+	m_lag = 0.0;
+	m_lag_valid = false;
 	m_late = 0.f;
 	m_interval = 100.f;
 	m_offset = 0;
@@ -98,13 +100,21 @@ bool CCoopNetPuppet::sample(Fvector& out)
 
 	// enough delay that the next key is almost always there before it is needed
 	float target = m_fixed_delay ? float(m_fixed_delay) : clampr(m_late + m_interval + 20.f, min_delay, max_delay);
-	if (m_last_valid && now > m_last_time)
+	// both the delay and the clock estimate change gradually: a jump in either would make the puppet jump
+	double want = double(m_offset) + double(target);
+	if (!m_lag_valid)
 	{
-		float step = float(now - m_last_time) * delay_rate;
-		m_delay += clampr(target - m_delay, -step, step);
+		m_lag = want;
+		m_lag_valid = true;
 	}
+	else if (now > m_last_time)
+	{
+		double step = double(now - m_last_time) * delay_rate;
+		m_lag += std::max(-step, std::min(step, want - m_lag));
+	}
+	m_delay = float(m_lag - double(m_offset));
 
-	s64 t = s64(now) - m_offset - s64(m_delay); // in the sender's clock
+	s64 t = s64(now) - s64(m_lag); // in the sender's clock
 
 	while (m_keys.size() > 2 && s64(m_keys[1].t) <= t)
 		m_keys.pop_front();
