@@ -56,6 +56,7 @@ public:
 	void net_puppet_push(const Fvector& position, u32 remote_time);
 	bool net_puppet_active() const { return !!m_net_puppet; }
 	float net_puppet_speed() const;
+	u32 net_puppet_delay() const;
 
 private:
 	u32 m_client_update_delta;

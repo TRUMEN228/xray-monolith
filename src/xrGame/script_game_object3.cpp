@@ -2543,6 +2543,12 @@ void CScriptGameObject::NetPuppetPush(Fvector pos, u32 remote_time)
 		monster->net_puppet_push(pos, remote_time);
 }
 
+u32 CScriptGameObject::NetPuppetDelay()
+{
+	CCustomMonster* monster = smart_cast<CCustomMonster*>(&object());
+	return monster ? monster->net_puppet_delay() : 0;
+}
+
 bool CScriptGameObject::NetPuppetActive()
 {
 	CCustomMonster* monster = smart_cast<CCustomMonster*>(&object());

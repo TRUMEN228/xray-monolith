@@ -601,6 +601,11 @@ void CCustomMonster::net_puppet_push(const Fvector& position, u32 remote_time)
 		m_net_puppet->push(position, remote_time);
 }
 
+u32 CCustomMonster::net_puppet_delay() const
+{
+	return m_net_puppet ? m_net_puppet->delay() : 0;
+}
+
 float CCustomMonster::net_puppet_speed() const
 {
 	return m_net_puppet ? m_net_puppet->speed() : 0.f;

@@ -542,6 +542,7 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("net_puppet", SAFE_WRAP(&CScriptGameObject::NetPuppet))
 		.def("net_puppet_push", SAFE_WRAP(&CScriptGameObject::NetPuppetPush))
 		.def("net_puppet_active", SAFE_WRAP(&CScriptGameObject::NetPuppetActive))
+		.def("net_puppet_delay", SAFE_WRAP(&CScriptGameObject::NetPuppetDelay))
 		.def("force_set_angle", SAFE_WRAP(&CScriptGameObject::ForceSetAngle))
 		.def("angle", SAFE_WRAP(&CScriptGameObject::Angle))
 		.def("force_set_rotation", SAFE_WRAP(&CScriptGameObject::ForceSetRotation))

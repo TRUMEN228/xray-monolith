@@ -8,6 +8,7 @@
 
 // Positions arrive with the sender's clock (its time_global). They are played back a little
 // behind real time, so uneven delivery on a laggy link is absorbed, and interpolated every frame.
+// With delay 0 the playback delay follows the link: how late keys arrive and how often they come.
 class CCoopNetPuppet
 {
 public:
@@ -23,13 +24,17 @@ public:
 	// position for this frame; false while nothing has arrived yet
 	bool sample(Fvector& out);
 	float speed() const { return m_speed; }
-	void set_delay(u32 delay) { m_delay = delay; }
+	void set_delay(u32 delay) { m_fixed_delay = delay; }
+	u32 delay() const { return u32(m_delay); }
 
 private:
 	void reset();
 
 	xr_deque<key> m_keys;
-	u32 m_delay; // playback delay, ms
+	u32 m_fixed_delay; // ms, 0 = adapt to the link
+	float m_delay; // playback delay in use, ms
+	float m_late; // how late keys arrive past the fastest one, ms (peak, slowly decaying)
+	float m_interval; // between keys, ms (smoothed)
 	s64 m_offset; // local time minus sender's time, the smallest seen lately
 	bool m_offset_valid;
 	Fvector m_last;
