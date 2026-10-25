@@ -614,8 +614,16 @@ float CCustomMonster::net_puppet_speed() const
 void CCustomMonster::net_puppet_apply()
 {
 	Fvector position;
-	if (!m_net_puppet || animation_movement_controlled() || !m_net_puppet->sample(position))
+	if (!m_net_puppet || !m_net_puppet->sample(position))
 		return;
+	if (animation_movement_controlled())
+	{
+		// sitting, leaning, in cover: the animation places it. Keep it while the sender's copy stays put,
+		// break it off once that one has walked away
+		if (position.distance_to(Position()) < 0.5f)
+			return;
+		destroy_anim_mov_ctrl();
+	}
 
 	NET_Last.p_pos = position;
 	if (CPHMovementControl* movement_control = character_physics_support()->movement())
