@@ -29,6 +29,7 @@ using namespace ACTOR_DEFS;
 
 class CInfoPortion;
 struct GAME_NEWS_DATA;
+class CCoopNetPuppet;
 class CActorCondition;
 class CCustomOutfit;
 class CGameTaskRegistryWrapper;
@@ -88,6 +89,24 @@ private:
 public:
 	CActor();
 	virtual ~CActor();
+
+// Anomaly Co-op: the partner shown as a second actor. Its position comes from the network
+// (CCoopNetPuppet), its movement flags and angles from the partner's own actor; it takes no input,
+// has no script binder, picks nothing up and is not the player (g_actor stays the local one)
+public:
+	bool coop_net_actor() const { return m_coop_net != NULL; }
+	void coop_net_push(const Fvector& position, u32 remote_time);
+	void coop_net_set_state(u32 mstate, const Fvector& angles);
+	// the local actor's own state for the partner: movement flags; model yaw, torso yaw, torso pitch
+	u32 coop_net_mstate() const { return mstate_real; }
+	Fvector coop_net_angles() const;
+private:
+	CCoopNetPuppet* m_coop_net;
+	bool m_coop_net_section;
+	u32 m_coop_mstate;
+	Fvector m_coop_angles;
+	void coop_net_update(float dt);
+	void coop_net_place();
 
 // demonized: First Person Death
 public:

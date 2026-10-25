@@ -2541,6 +2541,26 @@ void CScriptGameObject::NetPuppetPush(Fvector pos, u32 remote_time)
 {
 	if (CCustomMonster* monster = smart_cast<CCustomMonster*>(&object()))
 		monster->net_puppet_push(pos, remote_time);
+	else if (CActor* actor = smart_cast<CActor*>(&object()))
+		actor->coop_net_push(pos, remote_time);
+}
+
+void CScriptGameObject::NetActorState(u32 mstate, Fvector angles)
+{
+	if (CActor* actor = smart_cast<CActor*>(&object()))
+		actor->coop_net_set_state(mstate, angles);
+}
+
+u32 CScriptGameObject::NetActorMState()
+{
+	CActor* actor = smart_cast<CActor*>(&object());
+	return actor ? actor->coop_net_mstate() : 0;
+}
+
+Fvector CScriptGameObject::NetActorAngles()
+{
+	CActor* actor = smart_cast<CActor*>(&object());
+	return actor ? actor->coop_net_angles() : Fvector().set(0.f, 0.f, 0.f);
 }
 
 void CScriptGameObject::NetPuppetBody(u8 body)
@@ -2557,6 +2577,8 @@ u32 CScriptGameObject::NetPuppetDelay()
 
 bool CScriptGameObject::NetPuppetActive()
 {
+	if (CActor* actor = smart_cast<CActor*>(&object()))
+		return actor->coop_net_actor();
 	CCustomMonster* monster = smart_cast<CCustomMonster*>(&object());
 	return monster && monster->net_puppet_active();
 }

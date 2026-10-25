@@ -31,6 +31,7 @@
 #include "../xrEngine/xr_input.h"
 //
 #include "Actor.h"
+#include "coop_net_puppet.h"
 #include "ActorAnimation.h"
 #include "actor_anim_defs.h"
 #include "HudItem.h"
@@ -119,6 +120,10 @@ int psActorSleepTime = 1;
 
 CActor::CActor() : CEntityAlive(), current_ik_cam_shift(0)
 {
+	m_coop_net = NULL;
+	m_coop_net_section = false;
+	m_coop_mstate = 0;
+	m_coop_angles.set(0.f, 0.f, 0.f);
 	game_news_registry = xr_new<CGameNewsRegistryWrapper>();
 	// Cameras
 	cameras[eacFirstEye] = xr_new<CCameraFirstEye>(this);
@@ -355,6 +360,7 @@ void set_box_y_offset(LPCSTR section, CPHMovementControl& mc, u32 box_num, float
 
 void CActor::Load(LPCSTR section)
 {
+	m_coop_net_section = !!READ_IF_EXISTS(pSettings, r_bool, section, "coop_net_actor", false);
 	inherited::Load(section);
 	material().Load(section);
 	CInventoryOwner::Load(section);
@@ -553,6 +559,10 @@ struct playing_pred
 
 void CActor::Hit(SHit* pHDS)
 {
+	// the partner's real damage is applied in the partner's own game
+	if (m_coop_net)
+		return;
+
 	bool b_initiated = pHDS->aim_bullet; // physics strike by poltergeist
 
 	pHDS->aim_bullet = false;
@@ -1169,11 +1179,15 @@ void CActor::UpdateCL()
 	inherited::UpdateCL();
 	m_pPhysics_support->in_UpdateCL();
 
+	if (m_coop_net)
+		coop_net_place();
+
 	pickup_result_t pickup_result = {true, false};
-	if (g_Alive())
+	if (g_Alive() && !m_coop_net)
 		pickup_result = PickupModeUpdate();
 
-	PickupModeUpdate_COD(pickup_result);
+	if (!m_coop_net)
+		PickupModeUpdate_COD(pickup_result);
 
 	SetZoomAimingMode(false);
 	CWeapon* pWeapon = smart_cast<CWeapon*>(inventory().ActiveItem());
@@ -1896,6 +1910,10 @@ void CActor::shedule_Update(u32 DT)
 				}
 			}
 		}
+	}
+	else if (m_coop_net)
+	{
+		coop_net_update(dt);
 	}
 	else
 	{

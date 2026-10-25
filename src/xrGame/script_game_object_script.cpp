@@ -22,8 +22,9 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 
 // Anomaly Co-op: lets the mod know these exes have its engine side, and which revision
 // 1: net_puppet; 2: net_puppet with delay 0 adapts to the link, net_puppet_delay;
-// 3: stalker puppets pick gait and leg direction by how they really move, net_puppet_body
-static int coop_engine_version() { return 3; }
+// 3: stalker puppets pick gait and leg direction by how they really move, net_puppet_body;
+// 4: the partner can be a second actor (section with coop_net_actor = true): net_actor_state/mstate/angles
+static int coop_engine_version() { return 4; }
 
 #pragma optimize("s",on)
 void CScriptGameObject::script_register(lua_State* L)

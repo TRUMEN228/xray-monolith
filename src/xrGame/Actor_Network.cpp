@@ -1,5 +1,6 @@
 #include "pch_script.h"
 #include "actor.h"
+#include "coop_net_puppet.h"
 #include "hudmanager.h"
 #include "Actor_Flags.h"
 #include "inventory.h"
@@ -690,7 +691,10 @@ BOOL CActor::net_Spawn(CSE_Abstract* DC)
 	m_bWasHitted = false;
 	m_dwILastUpdateTime = 0;
 
-	if (IsGameTypeSingle())
+	if (m_coop_net_section && g_actor != this)
+		m_coop_net = xr_new<CCoopNetPuppet>(0);
+
+	if (IsGameTypeSingle() && !m_coop_net)
 	{
 		Level().MapManager().AddMapLocation("actor_location", ID());
 		Level().MapManager().AddMapLocation("actor_location_p", ID());
@@ -720,6 +724,7 @@ namespace crash_saving {
 
 void CActor::net_Destroy()
 {
+	xr_delete(m_coop_net);
 	inherited::net_Destroy();
 
 	if (m_holder_id != ALife::_OBJECT_ID(-1))

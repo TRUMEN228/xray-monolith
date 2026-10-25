@@ -7886,6 +7886,9 @@
     <ClCompile Include="CustomMonster.cpp">
       <Filter>AI\AMonsters\common\custom</Filter>
     </ClCompile>
+    <ClCompile Include="Actor_Coop.cpp">
+      <Filter>AI\AMonsters\common\custom</Filter>
+    </ClCompile>
     <ClCompile Include="coop_net_puppet.cpp">
       <Filter>AI\AMonsters\common\custom</Filter>
     </ClCompile>

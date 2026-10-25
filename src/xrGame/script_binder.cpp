@@ -89,6 +89,9 @@ void CScriptBinder::reload(LPCSTR section)
 	VERIFY(!m_object);
 	if (!pSettings->line_exist(section, "script_binding"))
 		return;
+	// Anomaly Co-op: the partner's actor must not run the player's binder (it would replace db.actor)
+	if (pSettings->line_exist(section, "coop_net_actor") && pSettings->r_bool(section, "coop_net_actor"))
+		return;
 
 	::luabind::functor<void> lua_function;
 	if (!ai().script_engine().functor(pSettings->r_string(section, "script_binding"), lua_function))
