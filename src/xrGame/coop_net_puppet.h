@@ -39,7 +39,8 @@ private:
 	float m_interval; // between keys, ms (smoothed)
 	s64 m_offset; // local time minus sender's time, the smallest seen lately
 	bool m_offset_valid;
-	Fvector m_last;
+	Fvector m_last; // shown last frame
+	Fvector m_corr; // shown minus computed: a correction being eased out after a late key
 	u32 m_last_time;
 	bool m_last_valid;
 	float m_speed; // horizontal, m/s, smoothed

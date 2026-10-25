@@ -11,6 +11,8 @@ namespace
 	const float teleport_distance = 15.f; // a jump this long between two keys is a real teleport
 	const u32 max_extrapolation = 250; // ms past the newest key before the puppet stops and waits
 	const u32 max_keys = 64;
+	const float ease_time = 0.15f; // s: a correction fades to a third this fast
+	const float snap_distance = 5.f; // a correction this long is a real jump: shown at once
 	const float min_delay = 50.f, max_delay = 500.f, start_delay = 200.f;
 	const float delay_rate = 0.1f; // the delay changes by at most this share of real time: playback speeds up or slows down by 10%
 }
@@ -31,6 +33,7 @@ void CCoopNetPuppet::reset()
 	m_offset = 0;
 	m_offset_valid = false;
 	m_last.set(0.f, 0.f, 0.f);
+	m_corr.set(0.f, 0.f, 0.f);
 	m_last_time = 0;
 	m_last_valid = false;
 	m_speed = 0.f;
@@ -54,6 +57,7 @@ void CCoopNetPuppet::push(const Fvector& p, u32 remote_time)
 			{
 				m_keys.clear();
 				m_last_valid = false;
+				m_corr.set(0.f, 0.f, 0.f);
 			}
 			else if (gap > 3.f * m_interval + 100.f)
 			{
@@ -140,6 +144,28 @@ bool CCoopNetPuppet::sample(Fvector& out)
 
 	if (m_last_valid && now > m_last_time)
 	{
+		// a key came later than the delay allowed: the puppet ran ahead on the last step and the real
+		// position is behind it. Do not pull it back in one frame, ease the difference out instead
+		float dt = float(now - m_last_time) / 1000.f;
+		m_corr.mul(expf(-dt / ease_time));
+		Fvector shown;
+		shown.add(out, m_corr);
+		float step = shown.distance_to(m_last);
+		float plausible = std::max(0.3f, m_speed * dt * 3.f);
+		if (step > plausible && step < snap_distance)
+		{
+			Fvector back;
+			back.sub(m_last, shown);
+			m_corr.add(back);
+			shown = m_last;
+		}
+		else if (step >= snap_distance)
+		{
+			m_corr.set(0.f, 0.f, 0.f);
+			shown = out;
+		}
+		out = shown;
+
 		Fvector d;
 		d.sub(out, m_last);
 		d.y = 0.f;
