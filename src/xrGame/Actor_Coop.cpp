@@ -11,6 +11,9 @@
 #include "Inventory.h"
 #include "Weapon.h"
 #include "xr_level_controller.h"
+#include "../Include/xrRender/Kinematics.h"
+#include "../Include/xrRender/KinematicsAnimated.h"
+#include "../xrEngine/motion.h"
 
 void CActor::coop_net_push(const Fvector& position, u32 remote_time)
 {
@@ -34,6 +37,7 @@ void CActor::coop_net_update(float dt)
 {
 	// it never dies of hunger, radiation or bleeding here: the partner's own game decides
 	SetfHealth(1.f);
+	++m_coop_updates;
 	mstate_real = mstate_wishful = m_coop_mstate;
 	NET_Last.o_model = m_coop_angles.x;
 	unaffected_r_torso.yaw = m_coop_angles.y;
@@ -61,6 +65,21 @@ void CActor::coop_net_weapon()
 	}
 	else if (weapon->IsWorking())
 		weapon->Action(kWPN_FIRE, CMD_STOP);
+}
+
+// the legs play a cycle: the model has the actor's motions and the scheduler drives them
+bool CActor::coop_net_animated() const
+{
+	return m_coop_updates > 0 && smart_cast<IKinematicsAnimated*>(Visual()) && m_current_legs.valid() &&
+		m_current_legs_blend && m_current_legs_blend->blendAmount > 0.f;
+}
+
+void CActor::coop_net_debug(string256& out) const
+{
+	xr_sprintf(out, "upd=%u en=%d rdy=%d anim_visual=%d legs=%d torso=%d blend=%.2f mstate=%u", m_coop_updates,
+		getEnabled() ? 1 : 0, getReady() ? 1 : 0, smart_cast<IKinematicsAnimated*>(Visual()) ? 1 : 0,
+		m_current_legs.valid() ? 1 : 0, m_current_torso.valid() ? 1 : 0,
+		m_current_legs_blend ? m_current_legs_blend->blendAmount : -1.f, mstate_real);
 }
 
 void CActor::coop_net_reload()

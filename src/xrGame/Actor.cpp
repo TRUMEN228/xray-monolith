@@ -123,6 +123,7 @@ CActor::CActor() : CEntityAlive(), current_ik_cam_shift(0)
 	m_coop_net = NULL;
 	m_coop_net_section = false;
 	m_coop_fire = false;
+	m_coop_updates = 0;
 	m_coop_mstate = 0;
 	m_coop_angles.set(0.f, 0.f, 0.f);
 	game_news_registry = xr_new<CGameNewsRegistryWrapper>();

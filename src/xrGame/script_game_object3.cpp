@@ -2576,6 +2576,22 @@ void CScriptGameObject::NetActorReload()
 		actor->coop_net_reload();
 }
 
+bool CScriptGameObject::NetActorAnimated()
+{
+	CActor* actor = smart_cast<CActor*>(&object());
+	return actor && actor->coop_net_actor() && actor->coop_net_animated();
+}
+
+LPCSTR CScriptGameObject::NetActorDebug()
+{
+	static string256 out;
+	out[0] = 0;
+	CActor* actor = smart_cast<CActor*>(&object());
+	if (actor && actor->coop_net_actor())
+		actor->coop_net_debug(out);
+	return out;
+}
+
 void CScriptGameObject::NetPuppetBody(u8 body)
 {
 	if (CCustomMonster* monster = smart_cast<CCustomMonster*>(&object()))

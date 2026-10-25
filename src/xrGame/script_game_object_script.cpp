@@ -25,7 +25,7 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 // 3: stalker puppets pick gait and leg direction by how they really move, net_puppet_body;
 // 4: the partner can be a second actor (section with coop_net_actor = true): net_actor_state/mstate/angles
 // 5: the actor partner is drawn whole, holds its weapon and shows its shots: net_actor_fire/reload;
-//    hits on it reach the hit callback (friendly fire) and do no damage
+//    hits on it reach the hit callback (friendly fire) and do no damage; net_actor_animated/debug
 static int coop_engine_version() { return 5; }
 
 #pragma optimize("s",on)

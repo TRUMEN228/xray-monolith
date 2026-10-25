@@ -1197,6 +1197,8 @@ public:
 	Fvector NetActorAngles();
 	void NetActorFire(bool on);
 	void NetActorReload();
+	bool NetActorAnimated();
+	LPCSTR NetActorDebug();
 	void ForceSetRotation(Fvector rot, bool enable = true);
 	void ForceSetAngle(Fvector ang, bool bActivate);
 	Fvector Angle();

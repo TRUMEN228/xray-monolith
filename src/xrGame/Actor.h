@@ -99,6 +99,8 @@ public:
 	void coop_net_set_state(u32 mstate, const Fvector& angles);
 	void coop_net_fire(bool on) { m_coop_fire = on; }
 	void coop_net_reload();
+	bool coop_net_animated() const;
+	void coop_net_debug(string256& out) const;
 	// the local actor's own state for the partner: movement flags; model yaw, torso yaw, torso pitch
 	u32 coop_net_mstate() const { return mstate_real; }
 	Fvector coop_net_angles() const;
@@ -108,6 +110,7 @@ private:
 	u32 m_coop_mstate;
 	Fvector m_coop_angles;
 	bool m_coop_fire;
+	u32 m_coop_updates;
 	void coop_net_weapon();
 	void coop_net_update(float dt);
 	void coop_net_place();
