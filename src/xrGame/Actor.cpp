@@ -560,9 +560,13 @@ struct playing_pred
 
 void CActor::Hit(SHit* pHDS)
 {
-	// the partner's real damage is applied in the partner's own game
+	// the partner's real damage is applied in the partner's own game; the mod hears the hit for friendly fire
 	if (m_coop_net)
+	{
+		if (const CGameObject* who = smart_cast<const CGameObject*>(pHDS->who))
+			callback(GameObject::eHit)(lua_game_object(), pHDS->damage(), pHDS->direction(), who->lua_game_object(), pHDS->boneID);
 		return;
+	}
 
 	bool b_initiated = pHDS->aim_bullet; // physics strike by poltergeist
 
