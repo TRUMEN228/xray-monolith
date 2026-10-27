@@ -1192,6 +1192,7 @@ public:
 	bool NetPuppetActive();
 	u32 NetPuppetDelay();
 	void NetPuppetBody(u8 body);
+	void NetPuppetLook(Fvector direction);
 	void NetActorState(u32 mstate, Fvector angles);
 	u32 NetActorMState();
 	Fvector NetActorAngles();

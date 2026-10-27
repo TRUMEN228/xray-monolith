@@ -620,6 +620,23 @@ void CCustomMonster::net_puppet_set_body(u8 body)
 		m_net_puppet->set_body(body);
 }
 
+void CCustomMonster::net_puppet_set_look(const Fvector& direction)
+{
+	if (m_net_puppet)
+		m_net_puppet->set_look(direction);
+}
+
+bool CCustomMonster::net_puppet_look(float& yaw, float& pitch) const
+{
+	Fvector dir;
+	if (!m_net_puppet || !m_net_puppet->look(dir))
+		return false;
+	dir.getHP(yaw, pitch);
+	yaw = angle_normalize_signed(-yaw);
+	pitch = -pitch;
+	return true;
+}
+
 u32 CCustomMonster::net_puppet_delay() const
 {
 	return m_net_puppet ? m_net_puppet->delay() : 0;

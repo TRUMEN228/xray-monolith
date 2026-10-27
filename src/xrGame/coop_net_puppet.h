@@ -29,6 +29,9 @@ public:
 	// body state from the sender (0 crouch, 1 stand), 255 = up to its own AI
 	u8 body() const { return m_body; }
 	void set_body(u8 body) { m_body = body; }
+	// where the sender looks; false until it says
+	bool look(Fvector& dir) const { dir = m_look; return m_look_valid; }
+	void set_look(const Fvector& dir) { m_look = dir; m_look_valid = !fis_zero(dir.square_magnitude()); }
 	void set_delay(u32 delay) { m_fixed_delay = delay; }
 	u32 delay() const { return u32(m_delay); }
 
@@ -53,4 +56,6 @@ private:
 	float m_speed; // horizontal, m/s, smoothed
 	Fvector m_vel;
 	u8 m_body;
+	Fvector m_look;
+	bool m_look_valid;
 };

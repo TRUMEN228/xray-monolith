@@ -60,6 +60,9 @@ public:
 	bool net_puppet_velocity(Fvector& velocity) const;
 	u8 net_puppet_body() const;
 	void net_puppet_set_body(u8 body);
+	void net_puppet_set_look(const Fvector& direction);
+	// head angles (stalker convention) for where the sender looks; false when it has not said
+	bool net_puppet_look(float& yaw, float& pitch) const;
 
 private:
 	u32 m_client_update_delta;
