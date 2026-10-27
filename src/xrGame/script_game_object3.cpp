@@ -2584,7 +2584,7 @@ bool CScriptGameObject::NetActorAnimated()
 
 LPCSTR CScriptGameObject::NetActorDebug()
 {
-	static string256 out;
+	static string2048 out;
 	out[0] = 0;
 	CActor* actor = smart_cast<CActor*>(&object());
 	if (actor && actor->coop_net_actor())

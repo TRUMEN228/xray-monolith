@@ -14,6 +14,7 @@
 #include "../Include/xrRender/Kinematics.h"
 #include "../Include/xrRender/KinematicsAnimated.h"
 #include "../xrEngine/motion.h"
+#include "../xrEngine/SkeletonMotions.h"
 
 void CActor::coop_net_push(const Fvector& position, u32 remote_time)
 {
@@ -87,13 +88,69 @@ bool CActor::coop_net_animated() const
 	return coop_hand_span(smart_cast<IKinematics*>(Visual())) < 1.2f;
 }
 
-void CActor::coop_net_debug(string256& out) const
+// which motion library a cycle comes from and which part of this model's skeleton it plays on
+static void coop_motion_info(IKinematicsAnimated* KA, const MotionID& id, string128& out)
+{
+	if (!id.valid())
+	{
+		xr_strcpy(out, "-");
+		return;
+	}
+	CMotionDef* def = KA->LL_GetMotionDef(id);
+	shared_motions& slot = const_cast<shared_motions&>(KA->LL_MotionsSlot(id.slot));
+	const CPartDef* own = def && def->bone_or_part != BI_NONE ? slot.partition()->part(def->bone_or_part) : NULL;
+	LPCSTR name = "?";
+	for (const auto& it : *slot.motion_map())
+		if (it.second == id.idx)
+		{
+			name = it.first.c_str();
+			break;
+		}
+	xr_sprintf(out, "%s slot%u(%s) part%d(%s) speed=%.2f accrue=%.2f power=%.2f", name, id.slot, slot.id().c_str(),
+		def ? int(def->bone_or_part) : -1, own ? own->Name.c_str() : "all", def ? def->Speed() : -1.f,
+		def ? def->Accrue() : -1.f, def ? def->Power() : -1.f);
+}
+
+void CActor::coop_net_debug(string2048& out) const
 {
 	xr_sprintf(out, "upd=%u en=%d rdy=%d anim_visual=%d legs=%d torso=%d blend=%.2f mstate=%u hand_span=%.2f", m_coop_updates,
 		getEnabled() ? 1 : 0, getReady() ? 1 : 0, smart_cast<IKinematicsAnimated*>(Visual()) ? 1 : 0,
 		m_current_legs.valid() ? 1 : 0, m_current_torso.valid() ? 1 : 0,
 		m_current_legs_blend ? m_current_legs_blend->blendAmount : -1.f, mstate_real,
 		Visual() ? coop_hand_span(smart_cast<IKinematics*>(Visual())) : -1.f);
+
+	IKinematicsAnimated* KA = smart_cast<IKinematicsAnimated*>(Visual());
+	if (!KA)
+		return;
+	string128 legs, torso;
+	coop_motion_info(KA, m_current_legs, legs);
+	coop_motion_info(KA, m_current_torso, torso);
+	string256 parts = "";
+	const CPartition& P = KA->partitions();
+	for (u16 i = 0; i < MAX_PARTS; ++i)
+		if (const CPartDef* part = P.part(i))
+		{
+			string64 one;
+			xr_sprintf(one, " %u:%s/%u/%u", i, part->Name.c_str(), u32(part->bones.size()), KA->LL_PartBlendsCount(i));
+			xr_strcat(parts, one);
+		}
+	string1024 more;
+	xr_sprintf(more, " slots=%u legs=%s torso=%s torso_blend=%.2f/%.2f parts(name/bones/blends):%s", KA->LL_MotionsSlotCount(),
+		legs, torso, m_current_torso_blend ? m_current_torso_blend->blendAmount : -1.f,
+		m_current_torso_blend ? m_current_torso_blend->timeCurrent : -1.f, parts);
+	xr_strcat(out, more);
+	// which bones of this model the legs part drives (a part names its bones by the first model that loaded it)
+	if (const CPartDef* legs_part = P.part(0))
+	{
+		IKinematics* K = smart_cast<IKinematics*>(Visual());
+		xr_strcat(out, " legs_bones:");
+		for (u32 b : legs_part->bones)
+		{
+			string64 one;
+			xr_sprintf(one, " %s", b < K->LL_BoneCount() ? K->LL_BoneName_dbg(u16(b)) : "?");
+			xr_strcat(out, one);
+		}
+	}
 }
 
 void CActor::coop_net_reload()
