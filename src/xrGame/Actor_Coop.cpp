@@ -68,18 +68,41 @@ void CActor::coop_net_weapon()
 }
 
 // the legs play a cycle: the model has the actor's motions and the scheduler drives them
+// how far the limbs are from the model's bind pose (a T-pose when the actor's motions do not move its bones)
+static float coop_bind_pose_offset(IKinematics* K)
+{
+	static const LPCSTR limbs[] = {"bip01_l_forearm", "bip01_r_forearm", "bip01_l_calf", "bip01_r_calf"};
+	xr_vector<Fmatrix> bind;
+	K->LL_GetBindTransform(bind);
+	K->CalculateBones(TRUE);
+	float offset = -1.f;
+	for (LPCSTR name : limbs)
+	{
+		u16 bone = K->LL_BoneID(name);
+		if (bone == BI_NONE || bone >= bind.size())
+			continue;
+		offset = _max(offset, K->LL_GetTransform(bone).c.distance_to(bind[bone].c));
+	}
+	return offset;
+}
+
 bool CActor::coop_net_animated() const
 {
-	return m_coop_updates > 0 && smart_cast<IKinematicsAnimated*>(Visual()) && m_current_legs.valid() &&
-		m_current_legs_blend && m_current_legs_blend->blendAmount > 0.f;
+	if (!(m_coop_updates > 0 && smart_cast<IKinematicsAnimated*>(Visual()) && m_current_legs.valid() &&
+		m_current_legs_blend && m_current_legs_blend->blendAmount > 0.f))
+		return false;
+	// no limb bone known: trust the motions
+	float offset = coop_bind_pose_offset(smart_cast<IKinematics*>(Visual()));
+	return offset < 0.f || offset > 0.03f;
 }
 
 void CActor::coop_net_debug(string256& out) const
 {
-	xr_sprintf(out, "upd=%u en=%d rdy=%d anim_visual=%d legs=%d torso=%d blend=%.2f mstate=%u", m_coop_updates,
+	xr_sprintf(out, "upd=%u en=%d rdy=%d anim_visual=%d legs=%d torso=%d blend=%.2f mstate=%u bind_offset=%.3f", m_coop_updates,
 		getEnabled() ? 1 : 0, getReady() ? 1 : 0, smart_cast<IKinematicsAnimated*>(Visual()) ? 1 : 0,
 		m_current_legs.valid() ? 1 : 0, m_current_torso.valid() ? 1 : 0,
-		m_current_legs_blend ? m_current_legs_blend->blendAmount : -1.f, mstate_real);
+		m_current_legs_blend ? m_current_legs_blend->blendAmount : -1.f, mstate_real,
+		Visual() ? coop_bind_pose_offset(smart_cast<IKinematics*>(Visual())) : -1.f);
 }
 
 void CActor::coop_net_reload()
