@@ -243,6 +243,11 @@ void CScriptEngine::lua_error_not_crash(lua_State* L)
     ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "[BusyHandsDebug] Runtime Error");
     auto stack = get_lua_stack(ai().script_engine().lua());
 
+    // Anomaly Co-op: keep the error and its Lua stack in the log too, not only in the fatal error window
+    Msg("! [BusyHandsDebug] %s", lua_isstring(L, -1) ? lua_tostring(L, -1) : "(no message)");
+    for (auto const& s : stack)
+        Msg("! [BusyHandsDebug] %s", s.c_str());
+
     xr_string lua_error_line = "";
     for (auto const& s : stack)
     {
