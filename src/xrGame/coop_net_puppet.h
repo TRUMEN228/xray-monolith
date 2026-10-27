@@ -41,6 +41,8 @@ private:
 	double m_lag; // local time minus the sender's time being shown: clock difference plus delay, eased
 	bool m_lag_valid;
 	float m_late; // how late keys arrive past the fastest one, ms (peak, slowly decaying)
+	float m_late_min; // the least late key since m_late_window, ms
+	u32 m_late_window; // sender's time the current one second window began
 	float m_interval; // between keys, ms (smoothed)
 	s64 m_offset; // local time minus sender's time, the smallest seen lately
 	bool m_offset_valid;

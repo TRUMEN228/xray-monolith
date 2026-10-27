@@ -15,6 +15,9 @@ namespace
 	const float snap_distance = 5.f; // a correction this long is a real jump: shown at once
 	const float min_delay = 50.f, max_delay = 500.f, start_delay = 200.f;
 	const float delay_rate = 0.1f; // the delay changes by at most this share of real time: playback speeds up or slows down by 10%
+	// a game that hangs for a moment (loading, saving, a busy PC) loses that time on its clock: the engine caps a
+	// frame's step. A clock difference that moves this much at once is such a hang, not the link getting slower
+	const s64 clock_jump = 300;
 }
 
 CCoopNetPuppet::CCoopNetPuppet(u32 delay) : m_fixed_delay(delay), m_body(255)
@@ -29,6 +32,8 @@ void CCoopNetPuppet::reset()
 	m_lag = 0.0;
 	m_lag_valid = false;
 	m_late = 0.f;
+	m_late_min = flt_max;
+	m_late_window = 0;
 	m_interval = 100.f;
 	m_offset = 0;
 	m_offset_valid = false;
@@ -78,6 +83,10 @@ void CCoopNetPuppet::push(const Fvector& p, u32 remote_time)
 	s64 offset = s64(Device.dwTimeGlobal) - s64(remote_time);
 	if (!m_offset_valid || offset < m_offset)
 	{
+		// our game hung: its clock fell behind the sender's. Move the playback clock along at once, the same
+		// moment of the partner's movement stays on screen instead of lagging by the hang for minutes
+		if (m_offset_valid && m_lag_valid && m_offset - offset > clock_jump)
+			m_lag -= double(m_offset - offset);
 		m_offset = offset;
 		m_offset_valid = true;
 	}
@@ -87,6 +96,23 @@ void CCoopNetPuppet::push(const Fvector& p, u32 remote_time)
 	// how late this key is compared to the fastest one: keep the peak, let it fade over a few seconds
 	float late = float(offset - m_offset);
 	m_late = std::max(late, m_late * 0.97f);
+
+	// the sender's game hung: every key comes late by the time its clock lost. When that holds for a whole
+	// second it is the clock, not the link: take it into the clock difference at once
+	m_late_min = std::min(m_late_min, late);
+	if (remote_time - m_late_window >= 1000)
+	{
+		if (m_late_window && m_late_min > float(clock_jump))
+		{
+			s64 shift = s64(m_late_min);
+			m_offset += shift;
+			if (m_lag_valid)
+				m_lag += double(shift);
+			m_late = std::max(0.f, m_late - m_late_min);
+		}
+		m_late_window = remote_time;
+		m_late_min = flt_max;
+	}
 
 	key k;
 	k.t = remote_time;
