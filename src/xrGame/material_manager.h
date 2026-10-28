@@ -37,6 +37,8 @@ public:
 	IC u16 last_material_idx() const;
 	IC u16 self_material_idx() const;
 	IC SGameMtlPair* get_current_pair();
+	// co-op: the partner's actor is placed by the network, so its physics never touches the ground to learn it
+	void set_last_material_idx(u16 idx) { m_last_material_idx = idx; }
 };
 
 #include "material_manager_inline.h"

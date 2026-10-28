@@ -5,6 +5,9 @@
 
 #include "pch_script.h"
 #include "Actor.h"
+#include "../xrEngine/GameMtlLib.h"
+#include "Level.h"
+#include "material_manager.h"
 #include "coop_net_puppet.h"
 #include "CharacterPhysicsSupport.h"
 #include "PHMovementControl.h"
@@ -182,6 +185,10 @@ void CActor::coop_net_debug(string2048& out) const
 			xr_strcat(out, one);
 		}
 	}
+	SGameMtl* ground = GMLib.GetMaterialByIdx(material().last_material_idx());
+	string128 mtl;
+	xr_sprintf(mtl, " mtl=%s", ground ? ground->m_Name.c_str() : "?");
+	xr_strcat(out, mtl);
 }
 
 void CActor::coop_net_reload()
@@ -199,4 +206,10 @@ void CActor::coop_net_place()
 	if (CPHMovementControl* movement = character_physics_support()->movement())
 		movement->SetPosition(position);
 	Position().set(position);
+
+	// the ground under the feet for the steps' sounds and particles (without it they stay on the spawn's material)
+	collide::rq_result hit;
+	Fvector from = Fvector(position).add(Fvector().set(0.f, 0.5f, 0.f));
+	if (Level().ObjectSpace.RayPick(from, Fvector().set(0.f, -1.f, 0.f), 1.5f, collide::rqtStatic, hit, this) && !hit.O)
+		material().set_last_material_idx((Level().ObjectSpace.GetStaticTris() + hit.element)->material);
 }
