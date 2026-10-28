@@ -511,6 +511,13 @@ void CActor::net_Import_Physic_proceed()
 
 BOOL CActor::net_Spawn(CSE_Abstract* DC)
 {
+	// Anomaly Co-op: the partner's actor comes in alive. Its server object can carry no health, and a dead body gets a
+	// ragdoll at spawn whose physics then hold the bones in the bind pose (a T-pose), even after it is healed
+	if (m_coop_net_section)
+		if (CSE_ALifeCreatureAbstract* creature = smart_cast<CSE_ALifeCreatureAbstract*>(DC))
+			if (creature->get_health() <= 0.f)
+				creature->set_health(1.f);
+
 	m_holder_id = ALife::_OBJECT_ID(-1);
 	m_feel_touch_characters = 0;
 	m_snd_noise = 0.0f;

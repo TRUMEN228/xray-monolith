@@ -27,7 +27,8 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 // 5: the actor partner is drawn whole, holds its weapon and shows its shots: net_actor_fire/reload;
 //    hits on it reach the hit callback (friendly fire) and do no damage; net_actor_animated/debug;
 //    net_puppet_look: a stalker puppet's head and body follow the sender's look at once
-static int coop_engine_version() { return 5; }
+// 6: the actor partner spawns alive (no ragdoll holding its bones in a T-pose): the actor partner is usable
+static int coop_engine_version() { return 6; }
 
 #pragma optimize("s",on)
 void CScriptGameObject::script_register(lua_State* L)
