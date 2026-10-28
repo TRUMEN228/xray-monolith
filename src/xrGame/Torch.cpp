@@ -350,7 +350,16 @@ void CTorch::UpdateCL()
 		if (actor)
 		{
             float eps = 0.001f;
-			if (actor->active_cam() == eacLookAt)
+			if (actor->coop_net_actor())
+			{
+				// co-op partner: its cameras stay put, it looks where the network says (as its shots go)
+				Fvector look = actor->coop_net_angles();
+				m_prev_hp.x = angle_inertion_var(m_prev_hp.x, look.y, m_torch_inertion_speed_min,
+				                                 m_torch_inertion_speed_max, m_torch_inertion_clamp, Device.fTimeDelta);
+				m_prev_hp.y = angle_inertion_var(m_prev_hp.y, -look.z, m_torch_inertion_speed_min,
+				                                 m_torch_inertion_speed_max, m_torch_inertion_clamp, Device.fTimeDelta);
+			}
+			else if (actor->active_cam() == eacLookAt)
 			{
 				m_prev_hp.x = angle_inertion_var(m_prev_hp.x, -actor->cam_Active()->yaw, m_torch_inertion_speed_min,
 				                                 m_torch_inertion_speed_max, m_torch_inertion_clamp, Device.fTimeDelta);
