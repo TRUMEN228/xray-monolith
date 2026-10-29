@@ -28,7 +28,9 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 //    hits on it reach the hit callback (friendly fire) and do no damage; net_actor_animated/debug;
 //    net_puppet_look: a stalker puppet's head and body follow the sender's look at once
 // 6: the actor partner spawns alive (no ragdoll holding its bones in a T-pose): the actor partner is usable
-static int coop_engine_version() { return 6; }
+// 7: net_puppet_mental: a stalker puppet is animated calm, alert or panicked as on the sender, not by its own AI;
+//    net_weapon_addons: the partner's weapon shows the scope, silencer and grenade launcher it has there
+static int coop_engine_version() { return 7; }
 
 #pragma optimize("s",on)
 void CScriptGameObject::script_register(lua_State* L)

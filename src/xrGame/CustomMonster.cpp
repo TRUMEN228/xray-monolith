@@ -620,6 +620,17 @@ void CCustomMonster::net_puppet_set_body(u8 body)
 		m_net_puppet->set_body(body);
 }
 
+u8 CCustomMonster::net_puppet_mental() const
+{
+	return m_net_puppet ? m_net_puppet->mental() : u8(255);
+}
+
+void CCustomMonster::net_puppet_set_mental(u8 mental)
+{
+	if (m_net_puppet)
+		m_net_puppet->set_mental(mental);
+}
+
 void CCustomMonster::net_puppet_set_look(const Fvector& direction)
 {
 	if (m_net_puppet)

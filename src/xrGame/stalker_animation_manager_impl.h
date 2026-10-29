@@ -20,6 +20,21 @@ IC CStalkerAnimationManager::EBodyState CStalkerAnimationManager::body_state() c
 	return (object().movement().body_state());
 }
 
+IC MonsterSpace::EMentalState CStalkerAnimationManager::mental_state() const
+{
+	// Anomaly Co-op: a network puppet looks as calm or alert as on the sender
+	u8 net_mental = object().net_puppet_mental();
+	if (net_mental <= MonsterSpace::eMentalStatePanic)
+	{
+		// there are no calm animations for crouching (the two states may come a moment apart)
+		if (net_mental == MonsterSpace::eMentalStateFree && body_state() != eBodyStateStand)
+			return (MonsterSpace::eMentalStateDanger);
+		return (MonsterSpace::EMentalState(net_mental));
+	}
+
+	return (object().movement().mental_state());
+}
+
 IC void CStalkerAnimationManager::fill_object_info()
 {
 	CInventoryItem* item = object().inventory().ActiveItem();

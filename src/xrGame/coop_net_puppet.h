@@ -29,6 +29,9 @@ public:
 	// body state from the sender (0 crouch, 1 stand), 255 = up to its own AI
 	u8 body() const { return m_body; }
 	void set_body(u8 body) { m_body = body; }
+	// mental state from the sender (danger, free, panic as in EMentalState), 255 = up to its own AI
+	u8 mental() const { return m_mental; }
+	void set_mental(u8 mental) { m_mental = mental; }
 	// where the sender looks; false until it says
 	bool look(Fvector& dir) const { dir = m_look; return m_look_valid; }
 	void set_look(const Fvector& dir) { m_look = dir; m_look_valid = !fis_zero(dir.square_magnitude()); }
@@ -56,6 +59,7 @@ private:
 	float m_speed; // horizontal, m/s, smoothed
 	Fvector m_vel;
 	u8 m_body;
+	u8 m_mental;
 	Fvector m_look;
 	bool m_look_valid;
 };

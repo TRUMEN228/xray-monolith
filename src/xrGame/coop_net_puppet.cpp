@@ -20,7 +20,7 @@ namespace
 	const s64 clock_jump = 300;
 }
 
-CCoopNetPuppet::CCoopNetPuppet(u32 delay) : m_fixed_delay(delay), m_body(255), m_look_valid(false)
+CCoopNetPuppet::CCoopNetPuppet(u32 delay) : m_fixed_delay(delay), m_body(255), m_mental(255), m_look_valid(false)
 {
 	m_look.set(0.f, 0.f, 1.f);
 	reset();

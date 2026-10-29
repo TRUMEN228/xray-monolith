@@ -43,7 +43,13 @@ void CActor::coop_net_update(float dt)
 	SetfHealth(1.f);
 	++m_coop_updates;
 	mstate_real = mstate_wishful = m_coop_mstate;
-	NET_Last.o_model = m_coop_angles.x;
+	// a quick turn leaves the sender's body up to half a turn behind its look for a moment: the spine would twist
+	// past 180 degrees and the weapon jump to the other side, so the body keeps within a quarter turn of the look
+	float model = m_coop_angles.x;
+	float twist = angle_normalize_signed(m_coop_angles.y - model);
+	if (_abs(twist) > PI_DIV_2)
+		model = angle_normalize(m_coop_angles.y - (twist > 0.f ? PI_DIV_2 : -PI_DIV_2));
+	NET_Last.o_model = model;
 	unaffected_r_torso.yaw = m_coop_angles.y;
 	unaffected_r_torso.pitch = m_coop_angles.z;
 	unaffected_r_torso.roll = 0.f;

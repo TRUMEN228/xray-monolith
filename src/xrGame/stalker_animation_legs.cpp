@@ -160,16 +160,16 @@ MotionID CStalkerAnimationManager::legs_move_animation()
 
 	VERIFY(
 		(movement.body_state() == eBodyStateStand) ||
-		(movement.mental_state() != eMentalStateFree)
+		(mental_state() != eMentalStateFree)
 	);
 
-	if (eMentalStateDanger != movement.mental_state())
+	if (eMentalStateDanger != mental_state())
 	{
 		m_target_speed = movement.speed(eMovementDirectionForward);
 		m_last_non_zero_speed = m_target_speed;
 
 		//Alun: Sprint stalker fix
-		if (sprint || (movement_type == eMovementTypeRun && movement.mental_state() == eMentalStatePanic))
+		if (sprint || (movement_type == eMovementTypeRun && mental_state() == eMentalStatePanic))
 			return (m_data_storage->m_part_animations.A[eBodyStateStand].m_movement.A[2].A[4].A[0]);
 
 		return (m_data_storage->m_part_animations.A[body_state()].m_movement.A[movement_type].A[
@@ -274,9 +274,9 @@ MotionID CStalkerAnimationManager::legs_no_move_animation()
 	if (angle_difference(target, current) < EPS_L)
 	{
 		//		float					head_current = movement.head_orientation().current.yaw;
-		if ((movement.mental_state() != eMentalStateFree) || !object().sight().turning_in_place())
+		if ((mental_state() != eMentalStateFree) || !object().sight().turning_in_place())
 		{
-			if (movement.mental_state() == eMentalStateFree)
+			if (mental_state() == eMentalStateFree)
 				return (animation[1]);
 
 			if (body_state == eBodyStateCrouch)
@@ -291,13 +291,13 @@ MotionID CStalkerAnimationManager::legs_no_move_animation()
 
 	if (left_angle(current, target))
 	{
-		if (movement.mental_state() == eMentalStateFree)
+		if (mental_state() == eMentalStateFree)
 			return (animation[4]);
 
 		return (animation[2]);
 	}
 
-	if (movement.mental_state() == eMentalStateFree)
+	if (mental_state() == eMentalStateFree)
 		return (animation[5]);
 
 	return (animation[3]);

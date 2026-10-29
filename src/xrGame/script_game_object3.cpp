@@ -2598,6 +2598,22 @@ void CScriptGameObject::NetPuppetBody(u8 body)
 		monster->net_puppet_set_body(body);
 }
 
+void CScriptGameObject::NetWeaponAddons(u8 flags)
+{
+	CWeapon* weapon = smart_cast<CWeapon*>(&object());
+	if (!weapon || weapon->GetAddonsState() == flags)
+		return;
+	weapon->SetAddonsState(flags);
+	weapon->InitAddons();
+	weapon->UpdateAddonsVisibility();
+}
+
+void CScriptGameObject::NetPuppetMental(u8 mental)
+{
+	if (CCustomMonster* monster = smart_cast<CCustomMonster*>(&object()))
+		monster->net_puppet_set_mental(mental);
+}
+
 void CScriptGameObject::NetPuppetLook(Fvector direction)
 {
 	if (CCustomMonster* monster = smart_cast<CCustomMonster*>(&object()))

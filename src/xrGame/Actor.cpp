@@ -1198,7 +1198,10 @@ void CActor::UpdateCL()
 	SetZoomAimingMode(false);
 	CWeapon* pWeapon = smart_cast<CWeapon*>(inventory().ActiveItem());
 
-	cam_Update(float(Device.dwTimeDelta) / 1000.0f, currentFOV());
+	// Anomaly Co-op: the partner's actor has no view of its own here; its camera would go to this player's camera
+	// manager, and the statics in cam_Update (the last yaw for the weapon sway) are shared with this player's actor
+	if (!m_coop_net)
+		cam_Update(float(Device.dwTimeDelta) / 1000.0f, currentFOV());
     m_legs_controller.update(this);
 
 #ifdef STATIONARYMGUN_NEW
@@ -3067,7 +3070,8 @@ void CActor::On_SetEntity()
 
 bool CActor::unlimited_ammo()
 {
-	return !!psActorFlags.test(AF_UNLIMITEDAMMO);
+	// Anomaly Co-op: the partner's actor only shows its reloads, its rounds are counted in the partner's own game
+	return m_coop_net || !!psActorFlags.test(AF_UNLIMITEDAMMO);
 }
 
 void CActor::SwitchNightVision(bool vision_on, bool use_sounds, bool send_event)

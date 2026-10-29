@@ -130,6 +130,7 @@ private:
 	IC void fill_object_info();
 	IC u32 object_slot() const;
 	IC EBodyState body_state() const;
+	IC MonsterSpace::EMentalState mental_state() const;
 
 private:
 	bool need_look_back() const;

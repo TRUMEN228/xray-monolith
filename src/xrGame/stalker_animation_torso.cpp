@@ -91,7 +91,7 @@ MotionID CStalkerAnimationManager::no_object_animation(const EBodyState& body_st
 	const stalker_movement_manager_smart_cover& movement = stalker.movement();
 	const xr_vector<CAniVector>& animation = m_data_storage->m_part_animations.A[body_state].m_torso.A[0].A;
 
-	if (eMentalStateFree == movement.mental_state())
+	if (eMentalStateFree == mental_state())
 	{
 		VERIFY3(
 			eBodyStateStand == movement.body_state(),
@@ -167,7 +167,7 @@ MotionID CStalkerAnimationManager::unknown_object_animation(u32 slot, const EBod
 		return (animation_stand[12].A[1]);
 	}
 
-	if (eMentalStateFree == movement.mental_state())
+	if (eMentalStateFree == mental_state())
 	{
 		VERIFY3(
 			eBodyStateStand == movement.body_state(),
@@ -200,7 +200,7 @@ MotionID CStalkerAnimationManager::weapon_animation(u32 slot, const EBodyState& 
 	const xr_vector<CAniVector>& animation = m_data_storage->m_part_animations.A[body_state].m_torso.A[slot].A;
 
 	//Alun: Fix stalker sprint
-	if (eMentalStatePanic == object().movement().mental_state() && eMovementTypeRun == object()
+	if (eMentalStatePanic == mental_state() && eMovementTypeRun == object()
 	                                                                                   .movement().movement_type() &&
 		body_state == eBodyStateStand && !fis_zero(
 			object().movement().speed(object().character_physics_support()->movement())))
