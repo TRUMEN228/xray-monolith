@@ -1020,6 +1020,9 @@
     <ClInclude Include="CustomDetector.h" />
     <ClInclude Include="CustomDevice.h" />
     <ClInclude Include="coop_net_puppet.h" />
+    <ClInclude Include="coop_link.h" />
+    <ClInclude Include="coop_link_net.h" />
+    <ClInclude Include="coop_update.h" />
     <ClInclude Include="CustomMonster.h" />
     <ClInclude Include="CustomMonster_inline.h" />
     <ClInclude Include="CustomOutfit.h" />
@@ -2722,6 +2725,9 @@
     <ClCompile Include="CustomDetector.cpp" />
     <ClCompile Include="CustomDevice.cpp" />
     <ClCompile Include="coop_net_puppet.cpp" />
+    <ClCompile Include="coop_link.cpp" />
+    <ClCompile Include="coop_steam.cpp" />
+    <ClCompile Include="coop_update.cpp" />
     <ClCompile Include="Actor_Coop.cpp">
       <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>

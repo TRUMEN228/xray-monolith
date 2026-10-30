@@ -7,6 +7,8 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "pch_script.h"
+#include "coop_link.h"
+#include "coop_update.h"
 #include "script_game_object.h"
 #include "game_object_space.h"
 #include "script_ini_file.h"
@@ -30,7 +32,28 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 // 6: the actor partner spawns alive (no ragdoll holding its bones in a T-pose): the actor partner is usable
 // 7: net_puppet_mental: a stalker puppet is animated calm, alert or panicked as on the sender, not by its own AI;
 //    net_weapon_addons: the partner's weapon shows the scope, silencer and grenade launcher it has there
-static int coop_engine_version() { return 7; }
+// 8: the link to the partner in the engine, without CoopLauncher: coop_link_host/join/stop/out/in/status,
+//    through Steam: coop_link_host_steam/join_steam, coop_link_friends, coop_link_invite; coop_link_take_session;
+//    the main menu calls coop_menu.before_main_menu() before it is made;
+//    updates from the game: coop_update_check/download/apply/status
+static int coop_engine_version() { return 8; }
+
+// the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
+static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }
+static bool coop_link_join(LPCSTR address, int port, LPCSTR name, LPCSTR version) { return coop_link::join(address, port, name, version); }
+static void coop_link_stop() { coop_link::stop(); }
+static void coop_link_out(LPCSTR text) { coop_link::game_out(text); }
+static LPCSTR coop_link_in() { return coop_link::game_in(); }
+static LPCSTR coop_link_status() { return coop_link::status(); }
+static bool coop_link_host_steam(LPCSTR name, LPCSTR version) { return coop_link::host_steam(name, version); }
+static bool coop_link_join_steam(LPCSTR lobby, LPCSTR name, LPCSTR version) { return coop_link::join_steam(lobby, name, version); }
+static LPCSTR coop_link_friends() { return coop_link::steam_friends(); }
+static LPCSTR coop_link_invite() { return coop_link::steam_invite(); }
+static bool coop_link_take_session() { return coop_link::take_session(); }
+static void coop_update_check(LPCSTR current) { coop_update::check(current); }
+static void coop_update_download() { coop_update::download(); }
+static bool coop_update_apply() { return coop_update::apply(); }
+static LPCSTR coop_update_status() { return coop_update::status(); }
 
 #pragma optimize("s",on)
 void CScriptGameObject::script_register(lua_State* L)
@@ -207,6 +230,21 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("sell_condition", (void (*)(CScriptIniFile*, LPCSTR))(&::sell_condition)),
 		def("sell_condition", (void (*)(float, float))(&::sell_condition)),
 		def("show_condition", &::show_condition),
-		def("coop_engine_version", &::coop_engine_version)
+		def("coop_engine_version", &::coop_engine_version),
+		def("coop_link_host", &::coop_link_host),
+		def("coop_link_join", &::coop_link_join),
+		def("coop_link_stop", &::coop_link_stop),
+		def("coop_link_out", &::coop_link_out),
+		def("coop_link_in", &::coop_link_in),
+		def("coop_link_status", &::coop_link_status),
+		def("coop_link_host_steam", &::coop_link_host_steam),
+		def("coop_link_join_steam", &::coop_link_join_steam),
+		def("coop_link_friends", &::coop_link_friends),
+		def("coop_link_invite", &::coop_link_invite),
+		def("coop_link_take_session", &::coop_link_take_session),
+		def("coop_update_check", &::coop_update_check),
+		def("coop_update_download", &::coop_update_download),
+		def("coop_update_apply", &::coop_update_apply),
+		def("coop_update_status", &::coop_update_status)
 	];
 }

@@ -14,6 +14,8 @@
 #include "../saved_game_wrapper.h"
 #include "../login_manager.h"
 #include "MainMenu.h"
+#include "../ai_space.h"
+#include "script_engine.h"
 
 extern string_path g_last_saved_game;
 
@@ -57,6 +59,8 @@ CUIMMShniaga::~CUIMMShniaga()
 
 extern CActor* g_actor;
 
+static void coop_menu_entry(xr_vector<CUITextWnd*>& lst, CUIWindow* target); // below
+
 void CUIMMShniaga::InitShniaga(CUIXml& xml_doc, LPCSTR path)
 {
 	string256 _path;
@@ -94,6 +98,7 @@ void CUIMMShniaga::InitShniaga(CUIXml& xml_doc, LPCSTR path)
 		else
 			CreateList(m_buttons, xml_doc, "menu_main_mm");
 	}
+	coop_menu_entry(m_buttons, this);
 	CreateList(m_buttons_new_network, xml_doc, "menu_network_game");
 
 	ShowMain();
@@ -110,6 +115,44 @@ void CUIMMShniaga::OnDeviceReset()
 }
 
 extern CActor* g_actor;
+
+// Anomaly Co-op: the mod's entry ("btn_coop") in the main list, before the options; the mod gives its caption
+// (coop_menu.main_menu_entry) and handles the click like the other entries. No caption, no entry.
+static void coop_menu_entry(xr_vector<CUITextWnd*>& lst, CUIWindow* target)
+{
+	if (lst.empty() || !FS.exist("$game_scripts$", "coop_menu.script"))
+		return;
+	LPCSTR caption = nullptr;
+	::luabind::functor<LPCSTR> entry;
+	try
+	{
+		if (ai().script_engine().functor("coop_menu.main_menu_entry", entry))
+			caption = entry();
+	}
+	catch (...)
+	{
+		Msg("! coop_menu.main_menu_entry failed");
+	}
+	if (!caption || !*caption)
+		return;
+	CUITextWnd* like = lst.front();
+	CUITextWnd* st = xr_new<CUITextWnd>();
+	st->SetWndPos(Fvector2().set(0, 0));
+	st->SetWndSize(like->GetWndSize());
+	st->SetFont(like->GetFont());
+	st->SetTextComplexMode(false);
+	st->SetText(caption);
+	st->SetTextColor(like->GetTextColor());
+	st->SetTextAlignment(CGameFont::alCenter);
+	st->SetVTextAlignment(valCenter);
+	st->SetWindowName("btn_coop");
+	st->SetMessageTarget(target);
+	auto at = lst.end();
+	for (auto it = lst.begin(); it != lst.end(); ++it)
+		if ((*it)->WindowName() == "btn_options")
+			at = it;
+	lst.insert(at, st);
+}
 
 void CUIMMShniaga::CreateList(xr_vector<CUITextWnd*>& lst, CUIXml& xml_doc, LPCSTR path)
 {

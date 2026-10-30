@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "MainMenu.h"
+#include "ai_space.h"
+#include "script_engine.h"
 #include "UI/UIDialogWnd.h"
 #include "ui/UIMessageBoxEx.h"
 #include "../xrEngine/xr_IOConsole.h"
@@ -295,6 +297,18 @@ bool CMainMenu::ReloadUI()
 			m_startDialog->HideDialog();
 		CleanInternals();
 	}
+	// Anomaly Co-op: the mod adds its menu entry to the script main menu before it is made (the scripts' own
+	// callbacks are only registered once a game starts, after the first main menu)
+	if (FS.exist("$game_scripts$", "coop_menu.script"))
+	{
+		::luabind::functor<void> before;
+		if (ai().script_engine().functor("coop_menu.before_main_menu", before))
+		{
+			try { before(); }
+			catch (...) { Msg("! coop_menu.before_main_menu failed"); }
+		}
+	}
+
 	DLL_Pure* dlg = NEW_INSTANCE(TEXT2CLSID("MAIN_MNU"));
 	if (!dlg)
 	{

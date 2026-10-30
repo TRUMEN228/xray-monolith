@@ -3420,6 +3420,15 @@
     <ClInclude Include="CustomMonster.h">
       <Filter>AI\AMonsters\common\custom</Filter>
     </ClInclude>
+    <ClInclude Include="coop_update.h">
+      <Filter>AI\AMonsters\common\custom</Filter>
+    </ClInclude>
+    <ClInclude Include="coop_link_net.h">
+      <Filter>AI\AMonsters\common\custom</Filter>
+    </ClInclude>
+    <ClInclude Include="coop_link.h">
+      <Filter>AI\AMonsters\common\custom</Filter>
+    </ClInclude>
     <ClInclude Include="coop_net_puppet.h">
       <Filter>AI\AMonsters\common\custom</Filter>
     </ClInclude>
@@ -7887,6 +7896,15 @@
       <Filter>AI\AMonsters\common\custom</Filter>
     </ClCompile>
     <ClCompile Include="Actor_Coop.cpp">
+      <Filter>AI\AMonsters\common\custom</Filter>
+    </ClCompile>
+    <ClCompile Include="coop_update.cpp">
+      <Filter>AI\AMonsters\common\custom</Filter>
+    </ClCompile>
+    <ClCompile Include="coop_steam.cpp">
+      <Filter>AI\AMonsters\common\custom</Filter>
+    </ClCompile>
+    <ClCompile Include="coop_link.cpp">
       <Filter>AI\AMonsters\common\custom</Filter>
     </ClCompile>
     <ClCompile Include="coop_net_puppet.cpp">
