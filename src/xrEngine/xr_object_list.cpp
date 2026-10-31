@@ -455,6 +455,9 @@ void CObjectList::Unload()
 		O->net_Destroy();
 		Destroy(O);
 	}
+	// Anomaly Co-op: setDestroy() above queued each leaked object for destruction, and Destroy() has just
+	// deleted it: a queue of freed objects failed the destructor's check and crashed the game on exit
+	destroy_queue.clear();
 }
 
 CObject* CObjectList::Create(LPCSTR name)

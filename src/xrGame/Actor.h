@@ -104,6 +104,7 @@ public:
 	// the local actor's own state for the partner: movement flags; model yaw, torso yaw, torso pitch
 	u32 coop_net_mstate() const { return mstate_real; }
 	Fvector coop_net_angles() const;
+	void coop_net_flashlight(bool on);
 private:
 	CCoopNetPuppet* m_coop_net;
 	bool m_coop_net_section;

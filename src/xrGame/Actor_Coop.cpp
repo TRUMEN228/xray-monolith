@@ -13,6 +13,7 @@
 #include "PHMovementControl.h"
 #include "Inventory.h"
 #include "Weapon.h"
+#include "Flashlight.h"
 #include "xr_level_controller.h"
 #include "../Include/xrRender/Kinematics.h"
 #include "../Include/xrRender/KinematicsAnimated.h"
@@ -29,6 +30,15 @@ void CActor::coop_net_set_state(u32 mstate, const Fvector& angles)
 {
 	m_coop_mstate = mstate;
 	m_coop_angles = angles;
+}
+
+// the partner holds a flashlight in its other hand: whichever it carries shines while the partner's does
+void CActor::coop_net_flashlight(bool on)
+{
+	TIItemContainer& all = inventory().m_all;
+	for (PIItem item : all)
+		if (CFlashlight* light = smart_cast<CFlashlight*>(item))
+			light->coop_net_light(on);
 }
 
 Fvector CActor::coop_net_angles() const

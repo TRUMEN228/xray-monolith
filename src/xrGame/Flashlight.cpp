@@ -10,6 +10,7 @@
 #include "../xrengine/xr_collide_form.h"
 #include "Level.h"
 #include "Actor.h"
+#include "../Include/xrRender/Kinematics.h"
 
 CFlashlight::CFlashlight()
 {
@@ -120,6 +121,12 @@ void CFlashlight::UpdateCL()
 	if (!actor)
 		return;
 
+	if (actor->coop_net_actor())
+	{
+		coop_net_update(actor);
+		return;
+	}
+
 	if (!IsWorking())
 		return;
 
@@ -213,6 +220,66 @@ void CFlashlight::ResetLanim()
 	glow_render->set_color(def_color);
 
 	isFlickering = false;
+}
+
+void CFlashlight::coop_net_light(bool on)
+{
+	if (on == m_coop_on)
+		return;
+	m_coop_on = on;
+	if (on && !m_coop_processing)
+	{
+		// a hud light is placed by the viewer's own camera: the partner's shines from the partner's hand in the world
+		light_render->set_hud_mode(false);
+		light_omni->set_hud_mode(false);
+		processing_activate();
+		m_coop_processing = true;
+	}
+	else if (!on)
+	{
+		// the device's own check counts only the viewer's devices: the partner's goes by its flag
+		if (m_bWorking)
+			TurnDeviceInternal(false);
+		if (m_coop_processing)
+		{
+			processing_deactivate();
+			m_coop_processing = false;
+		}
+	}
+}
+
+// the partner's flashlight shines from its left hand where the partner looks (as its torch and its shots do)
+void CFlashlight::coop_net_update(CActor* actor)
+{
+	if (!m_coop_on)
+		return;
+	if (!m_bWorking)
+		TurnDeviceInternal(true);
+
+	Fvector pos = actor->Position();
+	pos.y += 1.4f;
+	if (IKinematics* K = actor->Visual() ? actor->Visual()->dcast_PKinematics() : nullptr)
+	{
+		u16 hand = K->LL_BoneID("bip01_l_hand");
+		if (hand != BI_NONE)
+		{
+			Fmatrix m;
+			m.mul_43(actor->XFORM(), K->LL_GetTransform(hand));
+			pos = m.c;
+		}
+	}
+	Fvector look = actor->coop_net_angles();
+	Fvector dir, up, right;
+	dir.setHP(look.y, -look.z);
+	Fvector::generate_orthonormal_basis_normalized(dir, up, right);
+	// from the hand itself the partner's own body shadows the beam: the light starts in front of it
+	pos.mad(dir, 0.4f);
+	light_render->set_position(pos);
+	light_omni->set_position(pos);
+	glow_render->set_position(pos);
+	light_render->set_rotation(dir, right);
+	light_omni->set_rotation(dir, right);
+	glow_render->set_direction(dir);
 }
 
 inline bool CFlashlight::can_use_dynamic_lights()

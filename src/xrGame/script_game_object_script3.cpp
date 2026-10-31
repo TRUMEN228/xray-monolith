@@ -546,6 +546,7 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("net_puppet_body", SAFE_WRAP(&CScriptGameObject::NetPuppetBody))
 		.def("net_puppet_mental", SAFE_WRAP(&CScriptGameObject::NetPuppetMental))
 		.def("net_weapon_addons", SAFE_WRAP(&CScriptGameObject::NetWeaponAddons))
+		.def("net_actor_flashlight", SAFE_WRAP(&CScriptGameObject::NetActorFlashlight))
 		.def("net_puppet_look", SAFE_WRAP(&CScriptGameObject::NetPuppetLook))
 		.def("net_actor_state", SAFE_WRAP(&CScriptGameObject::NetActorState))
 		.def("net_actor_mstate", SAFE_WRAP(&CScriptGameObject::NetActorMState))

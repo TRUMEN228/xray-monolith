@@ -36,7 +36,8 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 //    through Steam: coop_link_host_steam/join_steam, coop_link_friends, coop_link_invite; coop_link_take_session;
 //    the main menu calls coop_menu.before_main_menu() before it is made;
 //    updates from the game: coop_update_check/download/apply/status
-static int coop_engine_version() { return 8; }
+// 9: the partner's hand flashlight shines (net_actor_flashlight); no crash on exit after a leaked object
+static int coop_engine_version() { return 9; }
 
 // the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
 static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }

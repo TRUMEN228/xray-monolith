@@ -2598,6 +2598,13 @@ void CScriptGameObject::NetPuppetBody(u8 body)
 		monster->net_puppet_set_body(body);
 }
 
+void CScriptGameObject::NetActorFlashlight(bool on)
+{
+	CActor* actor = smart_cast<CActor*>(&object());
+	if (actor && actor->coop_net_actor())
+		actor->coop_net_flashlight(on);
+}
+
 void CScriptGameObject::NetWeaponAddons(u8 flags)
 {
 	CWeapon* weapon = smart_cast<CWeapon*>(&object());
