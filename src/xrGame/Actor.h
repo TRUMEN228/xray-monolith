@@ -105,7 +105,21 @@ public:
 	u32 coop_net_mstate() const { return mstate_real; }
 	Fvector coop_net_angles() const;
 	void coop_net_flashlight(bool on);
+	// the device held out in the left hand and the arm bent to it: still being made, on with appdata\coop_arm.txt
+	static bool coop_net_hand_shown();
 private:
+	// the left arm holding a device: 0 none, 1 a flashlight by the mouth, 2 a detector under the shoulder
+	u8 m_coop_arm = 0;
+	Fvector m_coop_arm_fore = {0.f, 0.f, 0.f}; // the forearm's place in the upper arm's frame
+	Fvector m_coop_arm_hand = {0.f, 0.f, 0.f}; // the hand's place in the forearm's frame
+	Fvector m_coop_arm_target = {0.f, 0.f, 0.f}; // where the hand goes this frame, in the model's frame
+	bool m_coop_arm_known = false;
+	void coop_net_arm();
+	static void _BCL CoopUpperArmCallback(CBoneInstance* B);
+	static void _BCL CoopForeArmCallback(CBoneInstance* B);
+	static void _BCL CoopFingerCallback(CBoneInstance* B);
+	static void _BCL CoopThumbCallback(CBoneInstance* B);
+	u8 m_coop_fingers = 0; // how many of the left hand's finger bones there are to close
 	CCoopNetPuppet* m_coop_net;
 	bool m_coop_net_section;
 	u32 m_coop_mstate;

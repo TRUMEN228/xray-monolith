@@ -5,6 +5,8 @@
 #include "player_hud.h"
 #include "weapon.h"
 #include "Missile.h"
+#include "Flashlight.h"
+#include "../Include/xrRender/Kinematics.h"
 
 CCustomDevice::CCustomDevice()
 {
@@ -291,7 +293,60 @@ void CCustomDevice::OnAnimationEnd(u32 state)
 
 void CCustomDevice::UpdateXForm()
 {
-	CInventoryItem::UpdateXForm();
+	if (m_coop_shown)
+		coop_net_place();
+	else
+		CInventoryItem::UpdateXForm();
+}
+
+// an item in a backpack is neither drawn nor updated: while the partner holds it out, it is both
+void CCustomDevice::coop_net_show(bool on)
+{
+	if (on == m_coop_shown)
+		return;
+	m_coop_shown = on;
+	setVisible(on);
+	if (on)
+		processing_activate();
+	else
+		processing_deactivate();
+}
+
+// in the left hand, facing where the partner looks
+void CCustomDevice::coop_net_place()
+{
+	CActor* actor = smart_cast<CActor*>(H_Parent());
+	IKinematics* K = actor && actor->Visual() ? actor->Visual()->dcast_PKinematics() : nullptr;
+	u16 hand = K ? K->LL_BoneID("bip01_l_hand") : BI_NONE;
+	if (hand == BI_NONE)
+		return;
+	Fmatrix m;
+	m.mul_43(actor->XFORM(), K->LL_GetTransform(hand));
+	Fvector palm = m.c;
+	u16 finger = K->LL_BoneID("bip01_l_finger1");
+	if (finger != BI_NONE)
+	{
+		Fvector grip = K->LL_GetData(finger).bind_transform.c;
+		grip.mul(.6f);
+		m.transform_tiny(palm, grip);
+	}
+	Fvector look = actor->coop_net_angles();
+	if (smart_cast<CFlashlight*>(this))
+		XFORM().setHPB(look.y + PI, look.z, 0.f);
+	else
+		XFORM().setHPB(look.y, -look.z, 0.f);
+	XFORM().c = palm;
+}
+
+void CCustomDevice::renderable_Render()
+{
+	if (!m_coop_shown)
+	{
+		inherited::renderable_Render();
+		return;
+	}
+	UpdateXForm();
+	on_renderable_Render();
 }
 
 void CCustomDevice::OnActiveItem()
@@ -458,6 +513,12 @@ void CCustomDevice::TurnDeviceInternal(bool b)
 void CCustomDevice::UpdateCL()
 {
 	inherited::UpdateCL();
+
+	if (m_coop_shown)
+	{
+		UpdateXForm();
+		spatial_move();
+	}
 
 	if (H_Parent() != Level().CurrentEntity()) return;
 

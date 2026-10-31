@@ -222,36 +222,26 @@ void CFlashlight::ResetLanim()
 	isFlickering = false;
 }
 
-void CFlashlight::coop_net_light(bool on)
+void CFlashlight::coop_net_show(bool on)
 {
-	if (on == m_coop_on)
+	if (on == m_coop_shown)
 		return;
-	m_coop_on = on;
-	if (on && !m_coop_processing)
+	if (on)
 	{
 		// a hud light is placed by the viewer's own camera: the partner's shines from the partner's hand in the world
 		light_render->set_hud_mode(false);
 		light_omni->set_hud_mode(false);
-		processing_activate();
-		m_coop_processing = true;
 	}
-	else if (!on)
-	{
-		// the device's own check counts only the viewer's devices: the partner's goes by its flag
-		if (m_bWorking)
-			TurnDeviceInternal(false);
-		if (m_coop_processing)
-		{
-			processing_deactivate();
-			m_coop_processing = false;
-		}
-	}
+	// the device's own check counts only the viewer's devices: the partner's goes by its flag
+	else if (m_bWorking)
+		TurnDeviceInternal(false);
+	inherited::coop_net_show(on);
 }
 
 // the partner's flashlight shines from its left hand where the partner looks (as its torch and its shots do)
 void CFlashlight::coop_net_update(CActor* actor)
 {
-	if (!m_coop_on)
+	if (!m_coop_shown)
 		return;
 	if (!m_bWorking)
 		TurnDeviceInternal(true);
@@ -272,8 +262,8 @@ void CFlashlight::coop_net_update(CActor* actor)
 	Fvector dir, up, right;
 	dir.setHP(look.y, -look.z);
 	Fvector::generate_orthonormal_basis_normalized(dir, up, right);
-	// from the hand itself the partner's own body shadows the beam: the light starts in front of it
-	pos.mad(dir, 0.4f);
+	// from the hand itself the flashlight's own model and the partner's fingers shadow the beam
+	pos.mad(dir, 0.25f);
 	light_render->set_position(pos);
 	light_omni->set_position(pos);
 	glow_render->set_position(pos);

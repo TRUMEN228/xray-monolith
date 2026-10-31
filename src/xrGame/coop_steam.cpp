@@ -195,6 +195,7 @@ struct SteamLink : coop_link::Link
 	std::string partial;
 	std::atomic<bool> closed{false};
 	bool heard = false;
+	std::atomic<bool> left_lobby{false}; // Steam says it left the lobby: gone once its messages stop too
 	std::chrono::steady_clock::time_point last_heard = std::chrono::steady_clock::now();
 	std::string reason;
 
@@ -274,7 +275,13 @@ struct SteamLink : coop_link::Link
 			cv.wait_for(g, std::chrono::milliseconds(500));
 			// no disconnect event in SteamNetworkingMessages: silence means gone (pings come every 3 s)
 			int limit = heard ? 20 : 45;
-			if (std::chrono::steady_clock::now() - last_heard > std::chrono::seconds(limit))
+			auto silent = std::chrono::steady_clock::now() - last_heard;
+			if (left_lobby && heard && silent > std::chrono::seconds(5))
+			{
+				reason = "напарник вышел из лобби";
+				return false;
+			}
+			if (silent > std::chrono::seconds(limit))
 			{
 				reason = heard ? "напарник не отвечает 20 с" : "нет ответа от хоста за 45 с";
 				return false;
@@ -391,11 +398,10 @@ void handle(int id, const u8* p)
 					if (it != links.end())
 						l = it->second;
 				}
+				// Steam reports a member gone on a hiccup too, while its messages still come: the link waits for
+				// a few seconds of silence before it calls the partner gone
 				if (l)
-				{
-					l->reason = "напарник вышел из лобби";
-					l->close();
-				}
+					l->left_lobby = true;
 			}
 			break;
 		}

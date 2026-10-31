@@ -31,7 +31,7 @@ namespace
 {
 // protocol 7: no compressed states (protocol 6 deflated them; a 2.10 launcher speaks 7 as well)
 const char* PROTOCOL = "7";
-const char* ENGINE_REVISION = "8"; // coop_engine_version(), told to the partner in the hello
+const char* ENGINE_REVISION = "10"; // coop_engine_version(), told to the partner in the hello
 enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7 };
 
 typedef std::chrono::steady_clock clock_t_;
@@ -376,6 +376,16 @@ struct Bridge
 					return;
 				}
 				peer_name = p.size() > 1 ? recode(p[1], CP_UTF8, 1251) : "Напарник";
+				// the partner started its link anew while ours carried on: it hears us again, and a guest
+				// tells it once more that it is still in the world (no reload)
+				if (connected)
+				{
+					queue(MsgHello, std::string(PROTOCOL) + "|" + recode(my_name, 1251, CP_UTF8) + "|" + version + "|" +
+						ENGINE_REVISION);
+					resume_sent = false;
+					note(utf8(peer_name) + " переподключился");
+					break;
+				}
 				connected = true;
 				connected_since = now_ms();
 				session_sent = false;

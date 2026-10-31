@@ -14,6 +14,7 @@
 #include "Inventory.h"
 #include "Weapon.h"
 #include "Flashlight.h"
+#include "CustomDevice.h"
 #include "xr_level_controller.h"
 #include "../Include/xrRender/Kinematics.h"
 #include "../Include/xrRender/KinematicsAnimated.h"
@@ -32,13 +33,186 @@ void CActor::coop_net_set_state(u32 mstate, const Fvector& angles)
 	m_coop_angles = angles;
 }
 
-// the partner holds a flashlight in its other hand: whichever it carries shines while the partner's does
+// the partner holds a device in its other hand: a flashlight shines, a detector is just held out
 void CActor::coop_net_flashlight(bool on)
 {
+	u8 arm = 0;
 	TIItemContainer& all = inventory().m_all;
 	for (PIItem item : all)
-		if (CFlashlight* light = smart_cast<CFlashlight*>(item))
-			light->coop_net_light(on);
+		if (CCustomDevice* device = smart_cast<CCustomDevice*>(item))
+		{
+			device->coop_net_show(on);
+			if (on)
+				arm = smart_cast<CFlashlight*>(device) ? 1 : 2;
+		}
+	// bones may be drawn meanwhile on another thread: the arm never passes through "no device" on the way
+	m_coop_arm = arm;
+}
+
+// turns the bone about its own origin so that the child at child_local in its frame points at target
+static void coop_swing(Fmatrix& M, const Fvector& child_local, const Fvector& target)
+{
+	Fvector from, to, axis;
+	M.transform_dir(from, child_local);
+	from.normalize_safe();
+	to.sub(target, M.c);
+	to.normalize_safe();
+	axis.crossproduct(from, to);
+	if (axis.magnitude() < EPS_L)
+		return;
+	axis.normalize();
+	// a frame of each direction with the same axis: from's frame taken back, to's frame put on
+	Fvector side_from, side_to;
+	side_from.crossproduct(axis, from);
+	side_to.crossproduct(axis, to);
+	Fmatrix f, t, back, turn;
+	f.identity();
+	f.i.set(from);
+	f.j.set(axis);
+	f.k.set(side_from);
+	t.identity();
+	t.i.set(to);
+	t.j.set(axis);
+	t.k.set(side_to);
+	back.transpose(f);
+	turn.mul_43(t, back);
+	Fvector origin = M.c;
+	M.mulA_43(turn);
+	M.c = origin;
+}
+
+void CActor::CoopUpperArmCallback(CBoneInstance* B)
+{
+	CActor* A = static_cast<CActor*>(B->callback_param());
+	if (!A->m_coop_arm || !A->m_coop_arm_known)
+		return;
+	// the partner's look, level, in the model's frame
+	Fvector look = A->coop_net_angles(), dir;
+	dir.setHP(look.y, -look.z);
+	const Fmatrix& X = A->XFORM();
+	Fvector fwd;
+	fwd.set(dir.dotproduct(X.i), 0.f, dir.dotproduct(X.k));
+	if (fwd.magnitude() < EPS_L)
+		return;
+	fwd.normalize();
+	Fvector up, right;
+	up.set(0.f, 1.f, 0.f);
+	right.crossproduct(up, fwd);
+	// the hand: about the mouth with a flashlight, a little under the shoulder with a detector
+	const Fvector& shoulder = B->mTransform.c;
+	Fvector hand = shoulder;
+	if (A->m_coop_arm == 1)
+	{
+		hand.mad(fwd, .28f);
+		hand.mad(up, .10f);
+		hand.mad(right, .13f);
+	}
+	else
+	{
+		hand.mad(fwd, .38f);
+		hand.mad(up, -.12f);
+		hand.mad(right, .08f);
+	}
+	float upper = A->m_coop_arm_fore.magnitude(), lower = A->m_coop_arm_hand.magnitude();
+	Fvector reach;
+	reach.sub(hand, shoulder);
+	float dist = reach.magnitude();
+	reach.normalize_safe();
+	clamp(dist, _abs(upper - lower) + .01f, (upper + lower) * .99f);
+	hand.mad(shoulder, reach, dist);
+	// the elbow bends down and out, in the plane of the shoulder, the hand and that way
+	Fvector pole;
+	pole.set(0.f, 0.f, 0.f);
+	pole.mad(up, -1.f);
+	pole.mad(right, -.4f);
+	pole.mad(fwd, .2f);
+	pole.mad(reach, -pole.dotproduct(reach));
+	pole.normalize_safe();
+	float along = (upper * upper - lower * lower + dist * dist) / (2.f * dist);
+	float out = _sqrt(_max(upper * upper - along * along, 0.f));
+	Fvector elbow;
+	elbow.mad(shoulder, reach, along);
+	elbow.mad(pole, out);
+	A->m_coop_arm_target = hand;
+	coop_swing(B->mTransform, A->m_coop_arm_fore, elbow);
+}
+
+void CActor::CoopForeArmCallback(CBoneInstance* B)
+{
+	CActor* A = static_cast<CActor*>(B->callback_param());
+	if (A->m_coop_arm && A->m_coop_arm_known)
+		coop_swing(B->mTransform, A->m_coop_arm_hand, A->m_coop_arm_target);
+}
+
+// the fingers close round the device: each joint bends about its own z axis
+static void coop_curl(CBoneInstance* B, float angle)
+{
+	Fmatrix bend;
+	bend.rotateZ(angle);
+	B->mTransform.mulB_43(bend);
+}
+
+void CActor::CoopFingerCallback(CBoneInstance* B)
+{
+	if (static_cast<CActor*>(B->callback_param())->m_coop_arm)
+		coop_curl(B, deg2rad(65.f));
+}
+
+void CActor::CoopThumbCallback(CBoneInstance* B)
+{
+	if (static_cast<CActor*>(B->callback_param())->m_coop_arm)
+		coop_curl(B, deg2rad(30.f));
+}
+
+bool CActor::coop_net_hand_shown()
+{
+	static int on = -1;
+	if (on < 0)
+		on = FS.exist("$app_data_root$", "coop_arm.txt") ? 1 : 0;
+	return on == 1;
+}
+
+// the left arm's bones answer to the device: set once per model (a new outfit is a new model)
+void CActor::coop_net_arm()
+{
+	if (!coop_net_hand_shown())
+		return;
+	IKinematics* K = smart_cast<IKinematics*>(Visual());
+	if (!K)
+		return;
+	u16 upper = K->LL_BoneID("bip01_l_upperarm"), fore = K->LL_BoneID("bip01_l_forearm"),
+	    hand = K->LL_BoneID("bip01_l_hand");
+	if (upper == BI_NONE || fore == BI_NONE || hand == BI_NONE)
+		return;
+	CBoneInstance& U = K->LL_GetBoneInstance(upper);
+	if (U.callback() == CoopUpperArmCallback)
+		return;
+	// the bones' lengths: where each child sits in its parent's frame, as the skeleton is built
+	m_coop_arm_fore = K->LL_GetData(fore).bind_transform.c;
+	m_coop_arm_hand = K->LL_GetData(hand).bind_transform.c;
+	m_coop_arm_known = m_coop_arm_fore.magnitude() > .05f && m_coop_arm_hand.magnitude() > .05f;
+	U.set_callback(bctCustom, CoopUpperArmCallback, this);
+	K->LL_GetBoneInstance(fore).set_callback(bctCustom, CoopForeArmCallback, this);
+	static const char* fingers[] = {"bip01_l_finger1", "bip01_l_finger11", "bip01_l_finger12", "bip01_l_finger2",
+	                                "bip01_l_finger21", "bip01_l_finger22"};
+	static const char* thumb[] = {"bip01_l_finger0", "bip01_l_finger01", "bip01_l_finger02"};
+	m_coop_fingers = 0;
+	for (const char* name : fingers)
+	{
+		u16 id = K->LL_BoneID(name);
+		if (id == BI_NONE)
+			continue;
+		K->LL_GetBoneInstance(id).set_callback(bctCustom, CoopFingerCallback, this);
+		++m_coop_fingers;
+	}
+	for (const char* name : thumb)
+	{
+		u16 id = K->LL_BoneID(name);
+		if (id == BI_NONE)
+			continue;
+		K->LL_GetBoneInstance(id).set_callback(bctCustom, CoopThumbCallback, this);
+		++m_coop_fingers;
+	}
 }
 
 Fvector CActor::coop_net_angles() const
@@ -68,6 +242,7 @@ void CActor::coop_net_update(float dt)
 	g_SetAnimation(mstate_real);
 	mstate_old = mstate_real;
 	coop_net_weapon();
+	coop_net_arm();
 }
 
 // shots are shown only: the hits they make here do not count, the partner's game sends its own
@@ -189,7 +364,25 @@ void CActor::coop_net_debug(string2048& out) const
 			arm != BI_NONE && K->LL_GetBoneVisible(arm) ? 1 : 0);
 		xr_strcat(out, cb);
 	}
+	// the left arm against the shoulder, in the model's frame: the target, where the hand is, where the head is
+	if (IKinematics* K = smart_cast<IKinematics*>(Visual()))
+	{
+		u16 upper = K->LL_BoneID("bip01_l_upperarm"), hand = K->LL_BoneID("bip01_l_hand"), head = K->LL_BoneID("bip01_head");
+		if (upper != BI_NONE && hand != BI_NONE && head != BI_NONE)
+		{
+			const Fvector& S = K->LL_GetTransform(upper).c;
+			Fvector t, h, e;
+			t.sub(m_coop_arm_target, S);
+			h.sub(K->LL_GetTransform(hand).c, S);
+			e.sub(K->LL_GetTransform(head).c, S);
+			string256 arm;
+			xr_sprintf(arm, " arm=%u fingers=%u known=%d target=%.2f,%.2f,%.2f hand=%.2f,%.2f,%.2f head=%.2f,%.2f,%.2f", m_coop_arm,
+				m_coop_fingers, m_coop_arm_known ? 1 : 0, t.x, t.y, t.z, h.x, h.y, h.z, e.x, e.y, e.z);
+			xr_strcat(out, arm);
+		}
+	}
 	// which bones of this model the legs part drives (a part names its bones by the first model that loaded it)
+	if (false)
 	if (const CPartDef* legs_part = P.part(0))
 	{
 		IKinematics* K = smart_cast<IKinematics*>(Visual());

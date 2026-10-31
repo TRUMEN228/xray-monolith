@@ -29,8 +29,6 @@ protected:
 	shared_str m_light_section;
 
 	void SwitchLightOnly();
-	bool m_coop_on = false;
-	bool m_coop_processing = false; // an item in a backpack gets no frames of its own: while it shines, it does
 	void coop_net_update(class CActor* actor);
 
 public:
@@ -49,8 +47,8 @@ public:
 	void SetLanim(LPCSTR name, bool bFlicker, int flickerChance, float flickerDelay, float framerate);
 	void ResetLanim();
 	bool torch_active() const;
-	// Anomaly Co-op: the partner's actor holds it out of sight (no HUD hands); the network says when it shines
-	void coop_net_light(bool on);
+	// Anomaly Co-op: the partner holds it out in its left hand and it shines while the network says so
+	virtual void coop_net_show(bool on);
 
 protected:
 	virtual void TurnDeviceInternal(bool b);

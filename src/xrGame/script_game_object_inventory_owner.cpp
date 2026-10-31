@@ -2823,6 +2823,12 @@ void CScriptGameObject::SetCharacterIcon(LPCSTR iconName)
 	return pInventoryOwner->SetIcon(iconName);
 }
 
+void CScriptGameObject::SetCharacterName(LPCSTR name)
+{
+	if (CInventoryOwner* owner = smart_cast<CInventoryOwner*>(&object()))
+		owner->ChangeName(name);
+}
+
 // demonized: Adjust Lookout factor
 float CScriptGameObject::GetActorLookoutCoef() const
 {

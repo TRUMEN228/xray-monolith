@@ -31,6 +31,7 @@
 #include "../xrEngine/xr_input.h"
 //
 #include "Actor.h"
+#include "CustomDevice.h"
 #include "coop_net_puppet.h"
 #include "ActorAnimation.h"
 #include "actor_anim_defs.h"
@@ -2378,6 +2379,13 @@ void CActor::renderable_Render()
 		inherited::renderable_Render();
 		CInventoryOwner::renderable_Render();
 	}
+
+	// Anomaly Co-op: the device the partner holds out in its left hand (an item in hand is drawn by its owner)
+	if (coop_net_actor() && coop_net_hand_shown())
+		for (PIItem item : inventory().m_all)
+			if (CCustomDevice* device = smart_cast<CCustomDevice*>(item))
+				if (device->coop_net_shown())
+					device->renderable_Render();
 }
 
 BOOL CActor::renderable_ShadowGenerate()

@@ -1294,6 +1294,8 @@ public:
 	LPCSTR GetActorDefaultActionForObject();
 
 	void SetCharacterIcon(LPCSTR iconName);
+
+	void SetCharacterName(LPCSTR name); // Anomaly Co-op: the guest shows its own name in its game
 
 	// demonized: get talking npc
 	CScriptGameObject* get_talking_npc();

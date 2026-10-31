@@ -605,6 +605,7 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("phantom_set_enemy", &CScriptGameObject::PhantomSetEnemy)
 		// Actor
 		.def("set_character_icon", &CScriptGameObject::SetCharacterIcon)
+		.def("set_character_name", &CScriptGameObject::SetCharacterName)
 		//casting
 		.def("cast_Actor", &CScriptGameObject::cast_Actor)
 		.def("cast_Car", &CScriptGameObject::cast_Car)

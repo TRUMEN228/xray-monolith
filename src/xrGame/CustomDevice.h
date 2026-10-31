@@ -56,6 +56,11 @@ public:
 	virtual void render_item_3d_ui();
 	virtual bool render_item_3d_ui_query();
 
+	// Anomaly Co-op: the partner's device, held out in its left hand where everyone sees it
+	virtual void coop_net_show(bool on);
+	bool coop_net_shown() const { return m_coop_shown; }
+	virtual void renderable_Render();
+
 	bool m_bZoomed;
 	bool m_CustomDeviceEnabled;
 	float m_fZoomfactor;
@@ -66,6 +71,8 @@ protected:
 	virtual void UpdateVisibility();
 	virtual void UpdateWork();
 	CUICustomDeviceBase* m_ui;
+	bool m_coop_shown = false;
+	void coop_net_place();
 
 	virtual void CreateUI(){};
 	virtual void ResetUI(){};

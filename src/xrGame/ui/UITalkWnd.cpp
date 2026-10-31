@@ -1,5 +1,8 @@
 #include "stdafx.h"
+#include "pch_script.h"
 #include "UITalkWnd.h"
+#include "../../xrServerEntities/script_engine.h"
+#include "../ai_space.h"
 
 #include "UITalkDialogWnd.h"
 
@@ -331,6 +334,14 @@ void CUITalkWnd::AddAnswer(const shared_str& text, LPCSTR SpeakerName)
 
 	bool i_am = (0 == xr_strcmp(SpeakerName, m_pOurInvOwner->Name()));
 	UITalkDialogWnd->AddAnswer(SpeakerName, *CStringTable().translate(text), i_am);
+
+	// Anomaly Co-op: the partner sees the same conversation as it goes
+	::luabind::functor<void> line;
+	if (ai().script_engine().functor("coop_dialog.on_line", line))
+	{
+		try { line(SpeakerName, *CStringTable().translate(text), m_pOthersInvOwner ? m_pOthersInvOwner->Name() : ""); }
+		catch (...) { Msg("! coop_dialog.on_line failed"); }
+	}
 }
 
 void CUITalkWnd::SwitchToTrade()
