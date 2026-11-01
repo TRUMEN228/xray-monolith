@@ -631,6 +631,17 @@ void CCustomMonster::net_puppet_set_mental(u8 mental)
 		m_net_puppet->set_mental(mental);
 }
 
+u8 CCustomMonster::net_puppet_strap() const
+{
+	return m_net_puppet ? m_net_puppet->strap() : u8(255);
+}
+
+void CCustomMonster::net_puppet_set_strap(u8 strap)
+{
+	if (m_net_puppet)
+		m_net_puppet->set_strap(strap);
+}
+
 void CCustomMonster::net_puppet_set_look(const Fvector& direction)
 {
 	if (m_net_puppet)

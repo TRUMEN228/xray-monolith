@@ -69,6 +69,24 @@ public:
 	void AddQuestion(const shared_str& text, const shared_str& id, int number, bool b_finalizer);
 	void AddAnswer(const shared_str& text, LPCSTR SpeakerName);
 	bool b_disable_break;
+	// Anomaly Co-op: the partner chose one of the answers this window offers (as if clicked here)
+	void CoopPick(LPCSTR id);
+	// Anomaly Co-op: this window as a copy of the partner's talk with the same NPC - its lines and answers come
+	// from the partner's game, a chosen answer goes there; trade and upgrades stay this player's own
+	bool CoopMirrorOpen(CInventoryOwner* npc);
+	void CoopMirrorLine(LPCSTR speaker, LPCSTR text, bool ours);
+	void CoopMirrorOptions(LPCSTR list);
+	void CoopMirrorClose();
+	void CoopMirrorSwitch(LPCSTR kind);
+	bool CoopMirror() const { return m_coop_mirror; }
+protected:
+	bool m_coop_mirror = false;
+	bool m_coop_picking = false;  // the partner's answer is being said here
+	bool m_coop_switching = false; // this copy goes on to its own trade or upgrades
+	xr_vector<std::pair<shared_str, xr_string>> m_coop_mirror_options;
+	void coop_notify(LPCSTR fn, LPCSTR arg);
+	xr_vector<shared_str> m_coop_options; // the ids offered now
+	xr_string m_coop_options_text;        // the same with their texts: "id\ttext\n..." for the partner
 protected:
 	CUITalkDialogWnd* UITalkDialogWnd;
 

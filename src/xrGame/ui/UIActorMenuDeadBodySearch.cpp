@@ -166,6 +166,32 @@ void CUIActorMenu::InitDeadBodySearchMode()
 	UpdateDeadBodyBag();
 }
 
+bool CUIActorMenu::CoopRefreshBox(u16 id)
+{
+	if (!IsShown() || m_currMenuMode != mmDeadBodySearch)
+		return true;
+	CGameObject* shown = m_pInvBox ? smart_cast<CGameObject*>(m_pInvBox) :
+		(m_pPartnerInvOwner ? smart_cast<CGameObject*>(m_pPartnerInvOwner) : nullptr);
+	if (!shown || shown->ID() != id)
+		return true;
+	// the cells go away: none may be held by a drag, the selection, its hint or its context menu
+	if (CUIDragDropListEx::m_drag_item)
+		return false;
+	if (m_pCurrentCellItem && m_pCurrentCellItem->OwnerList() == m_pDeadBodyBagList)
+		SetCurrentItem(NULL);
+	m_pDeadBodyBagList->ClearAll(true);
+	TIItemContainer items_list;
+	if (m_pPartnerInvOwner)
+		m_pPartnerInvOwner->inventory().AddAvailableItems(items_list, false, m_pPartnerInvOwner->is_alive());
+	else
+		m_pInvBox->AddAvailableItems(items_list);
+	std::sort(items_list.begin(), items_list.end(), InventoryUtilities::GreaterRoomInRuck);
+	for (PIItem item : items_list)
+		m_pDeadBodyBagList->SetItem(create_cell_item(item));
+	UpdateDeadBodyBag();
+	return true;
+}
+
 void CUIActorMenu::DeInitDeadBodySearchMode()
 {
 	m_pDeadBodyBagList->Show(false);

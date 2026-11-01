@@ -354,6 +354,9 @@ public:
 	void UpdateActor();
 	void UpdatePartnerBag();
 	void UpdateDeadBodyBag();
+	// Anomaly Co-op: the partner took from or put into the box or body this menu shows: its list is made anew
+	// (false: not now, an item is being dragged - ask again later)
+	bool CoopRefreshBox(u16 id);
 
 	void xr_stdcall OnBtnPerformTradeBuy(CUIWindow* w, void* d);
 	void xr_stdcall OnBtnPerformTradeSell(CUIWindow* w, void* d);

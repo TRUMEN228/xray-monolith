@@ -76,7 +76,8 @@ void CUITalkWnd::InitTalkDialog()
 	//очистить лог сообщений
 	UITalkDialogWnd->ClearAll();
 
-	InitOthersStartDialog();
+	if (!m_coop_mirror)
+		InitOthersStartDialog();
 	NeedUpdateQuestions();
 	Update();
 
@@ -112,6 +113,17 @@ void CUITalkWnd::NeedUpdateQuestions()
 void CUITalkWnd::UpdateQuestions()
 {
 	UITalkDialogWnd->ClearQuestions();
+	m_coop_options.clear();
+	m_coop_options_text.clear();
+
+	if (m_coop_mirror)
+	{
+		int number = 0;
+		for (auto& o : m_coop_mirror_options)
+			UITalkDialogWnd->AddQuestion(o.second.c_str(), o.first.c_str(), number++, false);
+		m_bNeedToUpdateQuestions = false;
+		return;
+	}
 
 	//если нет активного диалога, то
 	//режима выбора темы
@@ -156,6 +168,102 @@ void CUITalkWnd::UpdateQuestions()
 		}
 	}
 	m_bNeedToUpdateQuestions = false;
+
+	// Anomaly Co-op: the partner's copy of this window offers the same answers
+	::luabind::functor<void> options;
+	if (ai().script_engine().functor("coop_dialog.on_options", options))
+	{
+		try
+		{
+			options(m_pOthersInvOwner ? m_pOthersInvOwner->Name() : "", m_coop_options_text.c_str(),
+				m_pOthersInvOwner ? m_pOthersInvOwner->object_id() : u16(-1));
+		}
+		catch (...) { Msg("! coop_dialog.on_options failed"); }
+	}
+}
+
+void CUITalkWnd::CoopPick(LPCSTR id)
+{
+	if (!IsShown() || m_coop_mirror || !id || m_bNeedToUpdateQuestions)
+		return;
+	shared_str pick = id;
+	if (std::find(m_coop_options.begin(), m_coop_options.end(), pick) == m_coop_options.end())
+		return;
+	UITalkDialogWnd->m_ClickedQuestionID = pick;
+	// a trade or upgrade this answer opens is the partner's: it opens there, not here
+	m_coop_picking = true;
+	AskQuestion();
+	m_coop_picking = false;
+}
+
+void CUITalkWnd::coop_notify(LPCSTR fn, LPCSTR arg)
+{
+	::luabind::functor<void> f;
+	if (ai().script_engine().functor(fn, f))
+	{
+		try { f(arg ? arg : ""); }
+		catch (...) { Msg("! %s failed", fn); }
+	}
+}
+
+bool CUITalkWnd::CoopMirrorOpen(CInventoryOwner* npc)
+{
+	CActor* actor = Actor();
+	if (!actor || !npc || actor->IsTalking() || IsShown())
+		return false;
+	m_coop_mirror = true;
+	m_coop_mirror_options.clear();
+	actor->StartTalk(npc);
+	if (CurrentGameUI()->TopInputReceiver())
+		CurrentGameUI()->TopInputReceiver()->HideDialog();
+	smart_cast<CUIGameSP*>(CurrentGameUI())->StartTalk(false);
+	return true;
+}
+
+void CUITalkWnd::CoopMirrorLine(LPCSTR speaker, LPCSTR text, bool ours)
+{
+	if (!m_coop_mirror || !IsShown() || !text || !*text)
+		return;
+	PlaySnd(text);
+	UITalkDialogWnd->AddAnswer(speaker, text, ours);
+}
+
+void CUITalkWnd::CoopMirrorOptions(LPCSTR list)
+{
+	if (!m_coop_mirror)
+		return;
+	m_coop_mirror_options.clear();
+	// "id\ttext\n..." as the partner's window offers them
+	xr_string all = list ? list : "";
+	size_t at = 0;
+	while (at < all.size())
+	{
+		size_t end = all.find('\n', at);
+		if (end == xr_string::npos)
+			end = all.size();
+		xr_string one = all.substr(at, end - at);
+		size_t tab = one.find('\t');
+		if (tab != xr_string::npos)
+			m_coop_mirror_options.emplace_back(shared_str(one.substr(0, tab).c_str()), one.substr(tab + 1));
+		at = end + 1;
+	}
+	NeedUpdateQuestions();
+}
+
+void CUITalkWnd::CoopMirrorClose()
+{
+	if (m_coop_mirror && IsShown())
+		HideDialog();
+}
+
+void CUITalkWnd::CoopMirrorSwitch(LPCSTR kind)
+{
+	if (!m_coop_mirror || !IsShown() || !kind)
+		return;
+	if (0 == xr_strcmp(kind, "upgrade"))
+		SwitchToUpgrade();
+	else
+		SwitchToTrade();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -253,6 +361,13 @@ void CUITalkWnd::Show(bool status)
 	{
 		StopSnd();
 		UITalkDialogWnd->Hide();
+		if (m_coop_mirror)
+		{
+			m_coop_mirror = false;
+			m_coop_mirror_options.clear();
+			coop_notify("coop_dialog.on_mirror_closed", m_coop_switching ? "switch" : "closed");
+			m_coop_switching = false;
+		}
 
 		if (m_pActor)
 		{
@@ -279,6 +394,14 @@ void CUITalkWnd::ToTopicMode()
 void CUITalkWnd::AskQuestion()
 {
 	if (m_bNeedToUpdateQuestions) return; //quick dblclick:(
+	if (m_coop_mirror)
+	{
+		coop_notify("coop_dialog.on_mirror_pick", UITalkDialogWnd->m_ClickedQuestionID.c_str());
+		// one choice per set of answers: the next set comes with the talk's next step
+		m_coop_mirror_options.clear();
+		NeedUpdateQuestions();
+		return;
+	}
 	shared_str phrase_id;
 
 	//игрок выбрал тему разговора
@@ -321,6 +444,8 @@ void CUITalkWnd::AddQuestion(const shared_str& text, const shared_str& value, in
 		return;
 
 	UITalkDialogWnd->AddQuestion(CStringTable().translate(text).c_str(), value.c_str(), number, b_finalizer);
+	m_coop_options.push_back(value);
+	m_coop_options_text += xr_string(value.c_str()) + "\t" + CStringTable().translate(text).c_str() + "\n";
 }
 
 void CUITalkWnd::AddAnswer(const shared_str& text, LPCSTR SpeakerName)
@@ -346,6 +471,13 @@ void CUITalkWnd::AddAnswer(const shared_str& text, LPCSTR SpeakerName)
 
 void CUITalkWnd::SwitchToTrade()
 {
+	if (m_coop_picking)
+	{
+		coop_notify("coop_dialog.on_partner_switch", "trade");
+		return;
+	}
+	if (m_coop_mirror)
+		m_coop_switching = true;
 	if (m_pOurInvOwner->IsTradeEnabled() && m_pOthersInvOwner->IsTradeEnabled())
 	{
 		CUIGameSP* pGameSP = smart_cast<CUIGameSP*>(CurrentGameUI());
@@ -362,6 +494,13 @@ void CUITalkWnd::SwitchToTrade()
 
 void CUITalkWnd::SwitchToUpgrade()
 {
+	if (m_coop_picking)
+	{
+		coop_notify("coop_dialog.on_partner_switch", "upgrade");
+		return;
+	}
+	if (m_coop_mirror)
+		m_coop_switching = true;
 	//if ( m_pOurInvOwner->IsInvUpgradeEnabled() && m_pOthersInvOwner->IsInvUpgradeEnabled() )
 	{
 		CUIGameSP* pGameSP = smart_cast<CUIGameSP*>(CurrentGameUI());

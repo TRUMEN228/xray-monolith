@@ -555,7 +555,7 @@ void CCustomZone::UpdateWorkload(u32 dt)
 	default: NODEFAULT;
 	}
 
-	if (Level().CurrentEntity())
+	if (Level().CurrentEntity() && Level().CurrentControlEntity())
 	{
 		Fvector P = Level().CurrentControlEntity()->Position();
 		P.y -= 0.9f;
@@ -644,7 +644,9 @@ void CCustomZone::shedule_Update(u32 dt)
 		inherited::shedule_Update(dt);
 
 		// check "fast-mode" border
-		float act_distance = Level().CurrentControlEntity()->Position().distance_to(P) - s.R;
+		// (no player yet while a load is under way - Anomaly Co-op loads the host's world again soon after the first)
+		CObject* control = Level().CurrentControlEntity();
+		float act_distance = control ? control->Position().distance_to(P) - s.R : FASTMODE_DISTANCE * 2.f;
 		if (act_distance > FASTMODE_DISTANCE && !m_zone_flags.test(eAlwaysFastmode))
 			o_switch_2_slow();
 		else

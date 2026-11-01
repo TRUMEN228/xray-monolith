@@ -9,6 +9,10 @@
 #include "pch_script.h"
 #include "coop_link.h"
 #include "coop_update.h"
+#include "UIGameSP.h"
+#include "ui/UITalkWnd.h"
+#include "Level.h"
+#include "InventoryOwner.h"
 #include "script_game_object.h"
 #include "game_object_space.h"
 #include "script_ini_file.h"
@@ -39,7 +43,11 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 // 9: the partner's hand flashlight shines (net_actor_flashlight); no crash on exit after a leaked object
 // 10: net_actor_flashlight shows any device the partner holds: in its left hand, the arm bent to hold it;
 //     set_character_name; the Steam link outlives a lobby hiccup, a partner's new hello is answered
-static int coop_engine_version() { return 10; }
+// 11: net_puppet_strap: a stalker puppet carries its weapon on its back or in its hands as on the sender;
+//     the talk window hands its answers to coop_dialog.on_options and takes the partner's with coop_dialog_pick,
+//     and opens as a copy of the partner's talk (coop_talk_mirror_*);
+//     ActorMenu:coop_refresh_box(id) shows a box or body anew
+static int coop_engine_version() { return 11; }
 
 // the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
 static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }
@@ -57,6 +65,49 @@ static void coop_update_check(LPCSTR current) { coop_update::check(current); }
 static void coop_update_download() { coop_update::download(); }
 static bool coop_update_apply() { return coop_update::apply(); }
 static LPCSTR coop_update_status() { return coop_update::status(); }
+// the partner chose an answer in its copy of this player's talk window
+static CUITalkWnd* coop_talk_wnd()
+{
+	CUIGameSP* ui = smart_cast<CUIGameSP*>(CurrentGameUI());
+	return ui ? ui->TalkMenu : nullptr;
+}
+static void coop_dialog_pick(LPCSTR id)
+{
+	if (CUITalkWnd* w = coop_talk_wnd())
+		w->CoopPick(id);
+}
+// this player's talk window as a copy of the partner's talk with the same NPC
+static bool coop_talk_mirror_open(u16 npc_id)
+{
+	CUITalkWnd* w = coop_talk_wnd();
+	CInventoryOwner* npc = smart_cast<CInventoryOwner*>(Level().Objects.net_Find(npc_id));
+	return w && npc && w->CoopMirrorOpen(npc);
+}
+static void coop_talk_mirror_line(LPCSTR speaker, LPCSTR text, bool ours)
+{
+	if (CUITalkWnd* w = coop_talk_wnd())
+		w->CoopMirrorLine(speaker, text, ours);
+}
+static void coop_talk_mirror_options(LPCSTR list)
+{
+	if (CUITalkWnd* w = coop_talk_wnd())
+		w->CoopMirrorOptions(list);
+}
+static void coop_talk_mirror_close()
+{
+	if (CUITalkWnd* w = coop_talk_wnd())
+		w->CoopMirrorClose();
+}
+static void coop_talk_mirror_switch(LPCSTR kind)
+{
+	if (CUITalkWnd* w = coop_talk_wnd())
+		w->CoopMirrorSwitch(kind);
+}
+static bool coop_talk_mirror_shown()
+{
+	CUITalkWnd* w = coop_talk_wnd();
+	return w && w->CoopMirror() && w->IsShown();
+}
 
 #pragma optimize("s",on)
 void CScriptGameObject::script_register(lua_State* L)
@@ -248,6 +299,13 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_update_check", &::coop_update_check),
 		def("coop_update_download", &::coop_update_download),
 		def("coop_update_apply", &::coop_update_apply),
-		def("coop_update_status", &::coop_update_status)
+		def("coop_update_status", &::coop_update_status),
+		def("coop_dialog_pick", &::coop_dialog_pick),
+		def("coop_talk_mirror_open", &::coop_talk_mirror_open),
+		def("coop_talk_mirror_line", &::coop_talk_mirror_line),
+		def("coop_talk_mirror_options", &::coop_talk_mirror_options),
+		def("coop_talk_mirror_close", &::coop_talk_mirror_close),
+		def("coop_talk_mirror_switch", &::coop_talk_mirror_switch),
+		def("coop_talk_mirror_shown", &::coop_talk_mirror_shown)
 	];
 }

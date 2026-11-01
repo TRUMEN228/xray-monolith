@@ -2621,6 +2621,12 @@ void CScriptGameObject::NetPuppetMental(u8 mental)
 		monster->net_puppet_set_mental(mental);
 }
 
+void CScriptGameObject::NetPuppetStrap(u8 strap)
+{
+	if (CCustomMonster* monster = smart_cast<CCustomMonster*>(&object()))
+		monster->net_puppet_set_strap(strap);
+}
+
 void CScriptGameObject::NetPuppetLook(Fvector direction)
 {
 	if (CCustomMonster* monster = smart_cast<CCustomMonster*>(&object()))

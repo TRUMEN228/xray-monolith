@@ -228,6 +228,15 @@ bool CObjectHandler::weapon_strapped(CWeapon* weapon) const
 		return (false);
 	}
 
+	// Anomaly Co-op: a network puppet carries its weapon as on the sender (its own AI would ready it at
+	// whatever it hears on this side)
+	u8 net_strap = planner().object().net_puppet_strap();
+	if (net_strap != 255)
+	{
+		weapon->strapped_mode(net_strap == 1);
+		return (net_strap == 1);
+	}
+
 	bool const almost_strapped = planner().current_action_state_id() == ObjectHandlerSpace::
 		eWorldOperatorStrapping2Idle;
 	if (

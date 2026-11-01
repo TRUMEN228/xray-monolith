@@ -31,7 +31,7 @@ namespace
 {
 // protocol 7: no compressed states (protocol 6 deflated them; a 2.10 launcher speaks 7 as well)
 const char* PROTOCOL = "7";
-const char* ENGINE_REVISION = "10"; // coop_engine_version(), told to the partner in the hello
+const char* ENGINE_REVISION = "11"; // coop_engine_version(), told to the partner in the hello
 enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7 };
 
 typedef std::chrono::steady_clock clock_t_;
@@ -594,6 +594,8 @@ struct Bridge
 		std::lock_guard<std::mutex> g(m);
 		link.reset();
 		connected = false;
+		// a world that came over the stopped link is not loaded by the main menu
+		session_arrived = false;
 		state_text = "idle";
 	}
 };

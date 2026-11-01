@@ -1193,6 +1193,7 @@ public:
 	u32 NetPuppetDelay();
 	void NetPuppetBody(u8 body);
 	void NetPuppetMental(u8 mental);
+	void NetPuppetStrap(u8 strap);
 	void NetWeaponAddons(u8 flags);
 	void NetActorFlashlight(bool on);
 	void NetPuppetLook(Fvector direction);

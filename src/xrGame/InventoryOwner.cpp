@@ -208,6 +208,8 @@ void CInventoryOwner::refresh_npc_name()
 	m_game_name = TranslateName(m_game_name_str.c_str());
 }
 
+static bool coop_talk_mirror(); // Anomaly Co-op: below the talk window include
+
 void CInventoryOwner::UpdateInventoryOwner(u32 deltaT)
 {
 	inventory().Update();
@@ -229,7 +231,8 @@ void CInventoryOwner::UpdateInventoryOwner(u32 deltaT)
 	{
 		//если наш собеседник перестал говорить с нами,
 		//то и нам нечего ждать.
-		if (!m_pTalkPartner->IsTalking())
+		// (not in a co-op copy of the partner's talk: the NPC talks in the partner's game, not here)
+		if (!m_pTalkPartner->IsTalking() && !coop_talk_mirror())
 		{
 			StopTalk();
 		}
@@ -285,6 +288,12 @@ void CInventoryOwner::StartTalk(CInventoryOwner* talk_partner, bool start_trade)
 
 #include "UIGameSP.h"
 #include "ui\UITalkWnd.h"
+
+static bool coop_talk_mirror()
+{
+	CUIGameSP* ui_sp = smart_cast<CUIGameSP*>(CurrentGameUI());
+	return ui_sp && ui_sp->TalkMenu && ui_sp->TalkMenu->CoopMirror();
+}
 
 void CInventoryOwner::StopTalk()
 {

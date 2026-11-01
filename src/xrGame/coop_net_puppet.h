@@ -32,6 +32,9 @@ public:
 	// mental state from the sender (danger, free, panic as in EMentalState), 255 = up to its own AI
 	u8 mental() const { return m_mental; }
 	void set_mental(u8 mental) { m_mental = mental; }
+	// the weapon on the back (1) or in the hands (0) as on the sender, 255 = up to its own AI
+	u8 strap() const { return m_strap; }
+	void set_strap(u8 strap) { m_strap = strap; }
 	// where the sender looks; false until it says
 	bool look(Fvector& dir) const { dir = m_look; return m_look_valid; }
 	void set_look(const Fvector& dir) { m_look = dir; m_look_valid = !fis_zero(dir.square_magnitude()); }
@@ -60,6 +63,7 @@ private:
 	Fvector m_vel;
 	u8 m_body;
 	u8 m_mental;
+	u8 m_strap = 255;
 	Fvector m_look;
 	bool m_look_valid;
 };

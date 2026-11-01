@@ -62,6 +62,8 @@ public:
 	void net_puppet_set_body(u8 body);
 	u8 net_puppet_mental() const;
 	void net_puppet_set_mental(u8 mental);
+	u8 net_puppet_strap() const;
+	void net_puppet_set_strap(u8 strap);
 	void net_puppet_set_look(const Fvector& direction);
 	// head angles (stalker convention) for where the sender looks; false when it has not said
 	bool net_puppet_look(float& yaw, float& pitch) const;
