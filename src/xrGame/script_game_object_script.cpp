@@ -47,7 +47,10 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 //     the talk window hands its answers to coop_dialog.on_options and takes the partner's with coop_dialog_pick,
 //     and opens as a copy of the partner's talk (coop_talk_mirror_*);
 //     ActorMenu:coop_refresh_box(id) shows a box or body anew
-static int coop_engine_version() { return 11; }
+// 12: the session in the engine (link protocol 8): the world to a guest in its menu, reloads, the host's travel,
+//     the guest's game ending with the host's; coop_session_reload(save_first), coop_session_moved(); the engine
+//     calls coop_session.engine_before_load(why) and coop_menu.engine_loading() before it loads
+static int coop_engine_version() { return 12; }
 
 // the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
 static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }
@@ -61,6 +64,8 @@ static bool coop_link_join_steam(LPCSTR lobby, LPCSTR name, LPCSTR version) { re
 static LPCSTR coop_link_friends() { return coop_link::steam_friends(); }
 static LPCSTR coop_link_invite() { return coop_link::steam_invite(); }
 static bool coop_link_take_session() { return coop_link::take_session(); }
+static void coop_session_reload(bool save_first) { coop_link::session_reload(save_first); }
+static void coop_session_moved() { coop_link::session_moved(); }
 static void coop_update_check(LPCSTR current) { coop_update::check(current); }
 static void coop_update_download() { coop_update::download(); }
 static bool coop_update_apply() { return coop_update::apply(); }
@@ -296,6 +301,8 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_link_friends", &::coop_link_friends),
 		def("coop_link_invite", &::coop_link_invite),
 		def("coop_link_take_session", &::coop_link_take_session),
+		def("coop_session_reload", &::coop_session_reload),
+		def("coop_session_moved", &::coop_session_moved),
 		def("coop_update_check", &::coop_update_check),
 		def("coop_update_download", &::coop_update_download),
 		def("coop_update_apply", &::coop_update_apply),

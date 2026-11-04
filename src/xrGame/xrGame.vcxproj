@@ -2725,7 +2725,10 @@
     <ClCompile Include="CustomDetector.cpp" />
     <ClCompile Include="CustomDevice.cpp" />
     <ClCompile Include="coop_net_puppet.cpp" />
-    <ClCompile Include="coop_link.cpp" />
+    <ClCompile Include="coop_link.cpp">
+      <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
     <ClCompile Include="coop_steam.cpp" />
     <ClCompile Include="coop_update.cpp" />
     <ClCompile Include="Actor_Coop.cpp">

@@ -4,11 +4,21 @@
 //	              A port of CoopLauncher's Bridge: frames are a type byte and a payload, over TCP a 4-byte
 //	              length goes first. States are coalesced (the newest line of each tag, at most every 45 ms),
 //	              events keep their order and are numbered for the game, which acknowledges them.
+//	              The session lives here too (r12): where each player is (main menu, loading, in the game, which
+//	              level), the host's world going to a guest in its menu, both games reloading, the host's travel
+//	              reloading the guest, the guest's game ending with the host's. It runs on the engine's frame, in
+//	              the main menu as in a game; the scripts only ask for a reload and are told before a load.
 ////////////////////////////////////////////////////////////////////////////
 
-#include "stdafx.h"
+#include "pch_script.h"
 #include "coop_link.h"
 #include "coop_link_net.h"
+#include "Level.h"
+#include "Actor.h"
+#include "UIGameCustom.h"
+#include "ai_space.h"
+#include "script_engine.h"
+#include "../xrEngine/XR_IOConsole.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -29,10 +39,46 @@ namespace coop_link
 {
 namespace
 {
-// protocol 7: no compressed states (protocol 6 deflated them; a 2.10 launcher speaks 7 as well)
-const char* PROTOCOL = "7";
-const char* ENGINE_REVISION = "11"; // coop_engine_version(), told to the partner in the hello
-enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7 };
+// protocol 8: the session in the engine (presence frames; the world and reloads no longer pass the scripts).
+// Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it
+const char* PROTOCOL = "8";
+const char* ENGINE_REVISION = "12"; // coop_engine_version(), told to the partner in the hello
+enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8 };
+
+const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
+const u64 TRAVEL_RECENT_MS = 120000; // a load this soon after the last moment in a game is a travel
+const u64 TRAVEL_WAIT_MS = 90000;    // how long a travel waits for the guest to be in a game
+const float TRAVEL_FAR = 100.f;      // a load this far from the last place, on the same level, is a travel too
+const float JUMP_FAR = 60.f;         // a move this far within a second, without a load (the PDA's travel)
+const u64 SAVE_RETRY_MS = 2500, SAVE_GIVE_UP_MS = 10000;
+const u64 LOST_KICK_MS = 8000;       // the host gone this long: the guest's game ends
+
+// where this game is: the main menu, a level that is loading, or a game
+std::string where_now()
+{
+	if (!g_pGameLevel)
+		return "menu";
+	if (!g_actor || !g_loading_events.empty())
+		return "loading";
+	return "game";
+}
+
+void register_frame();
+
+// a script function, if there is one ("module.function"); a failure there is not the session's
+void call_script(LPCSTR name, LPCSTR arg)
+{
+	try
+	{
+		luabind::functor<void> f;
+		if (ai().script_engine().functor(name, f))
+			f(arg);
+	}
+	catch (...)
+	{
+		Msg("! coop link: %s failed", name);
+	}
+}
 
 typedef std::chrono::steady_clock clock_t_;
 
@@ -187,6 +233,40 @@ struct Bridge
 	bool session_arrived = false;      // guest: the host's world came, not yet taken by the menu
 	bool saves_written = false;        // files came: the game's file list must learn them (on its own thread)
 
+	// ---------------------------------------------------------------- the session
+	// what this game tells the partner, and what the partner told: "where|level|world|ready|in the host's world"
+	struct Presence
+	{
+		std::string where, level, world;
+		bool ready = false, hosted = false;
+	};
+	Presence theirs;                   // under m (the net thread writes it)
+	std::string their_prev_where;      // the game's thread
+	std::string sent_presence;         // under m
+	std::string lobby_world;           // under m: this game's world, from the scripts' lobby state
+	bool lobby_ready = false;
+	std::string my_where;              // the game's thread
+	// host
+	bool world_sent = false;           // a guest waiting in its menu was sent the world (once per wait)
+	std::string save_name, save_mode;  // a save being made to go to the guest: "join", "reload" or "guest"
+	u64 save_retry = 0, save_until = 0;
+	bool reload_saved = false;         // the scripts asked: both games load what the host just sent
+	bool expect_reloading = false, load_own = false;
+	std::string reload_save;
+	u64 level_up_at = 0;
+	std::string last_level;            // where and when this game last was in a game (a load soon after is a travel)
+	Fvector last_pos = {};
+	u64 last_seen = 0, next_pos = 0;
+	bool own_load = false;             // the next load is the session's own (a reload), no travel
+	bool travel = false;
+	u64 travel_until = 0;
+	// guest
+	std::string arrived_name, arrived_mode; // the world that came: its save and what it is for
+	std::string load_name;
+	u64 load_at = 0;
+	bool hosted = false;               // this game runs the host's world (the session loaded it)
+	u64 lost_since = 0;
+
 	// the game knows only the saves it found when it started: a world written since then must be shown to it
 	void rescan_saves() // under m, on the game's thread
 	{
@@ -255,7 +335,15 @@ struct Bridge
 				if (p[1] == "g")
 					game_in_guest_session = p.size() > 2 && p[2] == "1";
 				else
+				{
+					// "s|lobby|ready|where|ng_ready|new/save|world": the menu's and the game's own
+					if (p[1] == "lobby" && p.size() >= 4)
+					{
+						lobby_ready = p[2] == "1";
+						lobby_world = p.size() > 6 ? p[6] : "";
+					}
 					states.push_back(line);
+				}
 			}
 			else if (p[0] == "e" && p.size() >= 3)
 			{
@@ -276,7 +364,7 @@ struct Bridge
 			{
 				auto p = split(e, '|');
 				if (p[0] == "@saved" && p.size() > 1 && connected)
-					send_save(p[1]);
+					send_save(p[1], "reload");
 			}
 			else if (connected)
 				queue(MsgEvent, e);
@@ -286,17 +374,6 @@ struct Bridge
 		{
 			resume_sent = true;
 			queue(MsgEvent, "resume|" + received_token);
-		}
-
-		// host: send the world once both are ready, as the launcher does (a returning guest says "resume" first)
-		u64 now = now_ms();
-		if (!game_seen_since)
-			game_seen_since = now;
-		if (role == "host" && connected && !session_sent && now - game_seen_since > 5000 && now - connected_since > 3000)
-		{
-			session_sent = true;
-			to_game.emplace_back(++to_game_seq, "cmd|sync");
-			note("Сохраняю сессию и отправляю напарнику...");
 		}
 
 		if (connected)
@@ -335,7 +412,8 @@ struct Bridge
 		return in_frame.c_str();
 	}
 
-	void send_save(const std::string& name) // under m
+	// mode: "join" (a guest in its menu loads it), "reload" (both load it), "guest" (the guest loads it)
+	void send_save(const std::string& name, const std::string& mode) // under m
 	{
 		for (LPCSTR ext : {".scop", ".scoc", ".dds"})
 		{
@@ -353,8 +431,9 @@ struct Bridge
 		char token[16];
 		xr_sprintf(token, "%08x%04x", (u32)now_ms(), (u32)rand() & 0xffff);
 		session_token = token;
-		queue(MsgEvent, "session_ready|" + session_token);
+		queue(MsgEvent, "session_ready|" + session_token + "|" + mode + "|" + name);
 		note("Сейв «" + utf8(name) + "» отправлен напарнику");
+		log("world " + name + " sent (" + mode + ")");
 	}
 
 	// ---------------------------------------------------------------- the partner's side
@@ -389,10 +468,24 @@ struct Bridge
 				connected = true;
 				connected_since = now_ms();
 				session_sent = false;
+				// the new partner hears where this game is, and is sent the world again if it waits for it
+				sent_presence.clear();
+				theirs = Presence();
+				world_sent = false;
 				state_text = "connected";
 				note("Подключён: " + utf8(peer_name));
 				if (p.size() > 2 && p[2] != version)
 					note("У " + utf8(peer_name) + " версия " + p[2] + ", у вас " + version + ". Обновитесь оба до последней версии.");
+				break;
+			}
+		case MsgPresence:
+			{
+				auto p = split(body, '|');
+				theirs.where = p[0];
+				theirs.level = p.size() > 1 ? p[1] : "";
+				theirs.world = p.size() > 2 ? p[2] : "";
+				theirs.ready = p.size() > 3 && p[3] == "1";
+				theirs.hosted = p.size() > 4 && p[4] == "1";
 				break;
 			}
 		case MsgState:
@@ -419,9 +512,23 @@ struct Bridge
 			}
 			if (body.compare(0, 13, "session_ready") == 0)
 			{
-				received_token = body.size() > 14 ? body.substr(14) : "";
+				// "session_ready|token|mode|save": the files came first (one ordered stream)
+				auto p = split(body, '|');
+				received_token = p.size() > 1 ? p[1] : "";
+				arrived_mode = p.size() > 2 ? p[2] : "join";
+				arrived_name = p.size() > 3 ? p[3] : "";
 				session_arrived = true;
-				to_game.emplace_back(++to_game_seq, "session_ready");
+				log("world " + arrived_name + " came (" + arrived_mode + ")");
+				break;
+			}
+			if (body == "reloading")
+			{
+				// the guest loads the world just sent: the host loads the same
+				if (expect_reloading)
+				{
+					expect_reloading = false;
+					load_own = true;
+				}
 				break;
 			}
 			to_game.emplace_back(++to_game_seq, body);
@@ -530,6 +637,7 @@ struct Bridge
 				link.reset();
 			was = connected;
 			connected = false;
+			theirs = Presence();
 			peer_state.clear();
 			last_sent_state.clear();
 			pending_state.clear();
@@ -544,6 +652,273 @@ struct Bridge
 		wake_send.notify_all();
 		l->close();
 		sender.join();
+	}
+
+	// ---------------------------------------------------------------- the session, on the engine's frame
+	std::string session_name() const { return lobby_world.empty() ? "coop_session" : "coop_" + lobby_world; }
+
+	bool save_exists(const std::string& name) const
+	{
+		return GetFileAttributesA((saves_dir + name + ".scop").c_str()) != INVALID_FILE_ATTRIBUTES;
+	}
+
+	void start_save(const std::string& mode, std::vector<std::string>& cmds) // under m
+	{
+		if (!save_mode.empty())
+			return;
+		save_name = session_name();
+		save_mode = mode;
+		DeleteFileA((saves_dir + save_name + ".scop").c_str());
+		cmds.push_back("save " + save_name);
+		u64 now = now_ms();
+		save_retry = now + SAVE_RETRY_MS;
+		save_until = now + SAVE_GIVE_UP_MS;
+		log("saving " + save_name + " for the guest (" + mode + ")");
+	}
+
+	// the guest's game ends with the host's: back to the main menu, which says why (coop_menu reads the note)
+	void kick(const std::string& why) // the game's thread, not under m
+	{
+		log("kicked: " + why);
+		call_script("coop_session.engine_before_load", "kick");
+		string_path p;
+		FS.update_path(p, "$app_data_root$", "coop_kicked.txt");
+		if (FILE* f = fopen(p, "wb"))
+		{
+			std::string text = game_text(why);
+			fwrite(text.data(), 1, text.size(), f);
+			fclose(f);
+		}
+		{
+			std::lock_guard<std::mutex> g(m);
+			session_arrived = false;
+			hosted = false;
+		}
+		// the guest joins again from the menu when the host is back
+		stop();
+		Console->Execute("disconnect");
+	}
+
+	void session_frame()
+	{
+		if (!running)
+			return;
+		u64 now = now_ms();
+		std::string where = where_now();
+		std::string level = g_pGameLevel ? Level().name().c_str() : "";
+		std::vector<std::string> cmds;
+		std::string kick_why, before_load, sent_mode;
+		bool came_up = where == "game" && my_where != "game";
+		bool host_role;
+		{
+			std::lock_guard<std::mutex> g(m);
+			host_role = role == "host";
+			if (where == "menu")
+				hosted = false;
+
+			// where this game is, for the partner
+			std::string text = where + "|" + level + "|" + clean(lobby_world) + "|" + (lobby_ready ? "1" : "0") + "|" +
+				(hosted ? "1" : "0");
+			if (connected && text != sent_presence)
+			{
+				sent_presence = text;
+				queue(MsgPresence, text);
+			}
+			if (!connected)
+				world_sent = false;
+
+			if (host_role)
+			{
+				// a travel: this game came up on another level (or far away) moments after it was last in a game
+				if (came_up)
+				{
+					level_up_at = now;
+					Fvector pos = g_actor->Position();
+					bool soon = last_seen && now - last_seen < TRAVEL_RECENT_MS;
+					bool moved = !last_level.empty() && (last_level != level || last_pos.distance_to(pos) > TRAVEL_FAR);
+					if (!own_load && soon && moved)
+					{
+						travel = true;
+						travel_until = now + TRAVEL_WAIT_MS;
+						log("travel " + last_level + " -> " + level);
+					}
+					own_load = false;
+					last_level = level;
+					last_pos = pos;
+					last_seen = now;
+					next_pos = now + 1000;
+				}
+				if (where == "game" && now >= next_pos)
+				{
+					// a jump on this level (the PDA's travel to a place in sight) is a travel as well
+					Fvector pos = g_actor->Position();
+					if (last_level == level && last_pos.distance_to(pos) > JUMP_FAR)
+					{
+						travel = true;
+						travel_until = now + TRAVEL_WAIT_MS;
+						log("jump on " + level);
+					}
+					last_level = level;
+					last_pos = pos;
+					last_seen = now;
+					next_pos = now + 1000;
+				}
+
+				bool settled = where == "game" && now - level_up_at > HOST_SETTLE_MS;
+				// the guest waits in its menu: it gets the world as it is now (a travel wanted before is done by it)
+				if (theirs.where != "menu")
+					world_sent = false;
+				if (connected && settled && theirs.where == "menu" && theirs.ready && !world_sent)
+				{
+					world_sent = true;
+					travel = false;
+					start_save("join", cmds);
+				}
+				// after a travel, once the guest is in a game and neither is busy: the guest loads the world here
+				if (travel && now > travel_until)
+					travel = false;
+				bool busy = (g_actor && g_actor->IsTalking()) || (CurrentGameUI() && CurrentGameUI()->TopInputReceiver());
+				if (travel && connected && settled && theirs.where == "game" && !busy)
+				{
+					travel = false;
+					start_save("guest", cmds);
+				}
+				if (reload_saved)
+				{
+					// the scripts made the session save themselves (the last save, Num3): it goes as it is
+					reload_saved = false;
+					if (connected && save_exists(session_name()))
+					{
+						send_save(session_name(), "reload");
+						sent_mode = "reload";
+						expect_reloading = true;
+						reload_save = session_name();
+					}
+				}
+				// the save being made: once it is on disk it goes
+				if (!save_mode.empty())
+				{
+					if (save_exists(save_name))
+					{
+						if (connected)
+						{
+							send_save(save_name, save_mode);
+							sent_mode = save_mode;
+							if (save_mode == "reload")
+							{
+								expect_reloading = true;
+								reload_save = save_name;
+							}
+						}
+						save_mode.clear();
+					}
+					else if (now > save_until)
+					{
+						note("Сессия не сохранилась, повторите");
+						save_mode.clear();
+					}
+					else if (now > save_retry)
+					{
+						save_retry = now + SAVE_RETRY_MS;
+						cmds.push_back("save " + save_name);
+					}
+				}
+				if (load_own)
+				{
+					load_own = false;
+					own_load = true;
+					cmds.push_back("load " + reload_save);
+					log("the guest reloads: this game loads " + reload_save + " too");
+				}
+			}
+			else
+			{
+				// the host's world came: from the menu it loads at once, in a game when it is a reload
+				if (session_arrived && where != "loading")
+				{
+					session_arrived = false;
+					rescan_saves();
+					if (where == "menu")
+					{
+						hosted = true;
+						before_load = "menu";
+						cmds.push_back("disconnect");
+						cmds.push_back("start server(" + arrived_name + "/single/alife/load) client(localhost)");
+						log("loading the host's world " + arrived_name + " from the menu");
+					}
+					else if (arrived_mode == "reload" || arrived_mode == "guest")
+					{
+						if (arrived_mode == "reload")
+							queue(MsgEvent, "reloading");
+						before_load = "reload";
+						load_name = arrived_name;
+						load_at = now + 1000; // a moment for the word to leave before loading stops the game
+					}
+				}
+				if (load_at && now > load_at)
+				{
+					load_at = 0;
+					hosted = true;
+					cmds.push_back("load " + load_name);
+					log("loading the host's world " + load_name);
+				}
+				// the host left for the main menu, or is gone: this game ends
+				if (hosted && where == "game")
+				{
+					if (their_prev_where == "game" && theirs.where == "menu")
+						kick_why = "Хост вышел в главное меню";
+					if (connected)
+						lost_since = 0;
+					else if (!lost_since)
+						lost_since = now;
+					else if (now - lost_since > LOST_KICK_MS)
+						kick_why = "Хост разорвал соединение";
+				}
+				else
+					lost_since = 0;
+			}
+			if (!theirs.where.empty())
+				their_prev_where = theirs.where;
+		}
+		my_where = where;
+		if (!sent_mode.empty())
+			call_script("coop_session.engine_world_sent", sent_mode.c_str());
+		if (!before_load.empty())
+			call_script(before_load == "menu" ? "coop_menu.engine_loading" : "coop_session.engine_before_load", before_load.c_str());
+		if (!kick_why.empty())
+		{
+			kick(kick_why);
+			return;
+		}
+		for (auto& c : cmds)
+			Console->Execute(c.c_str());
+	}
+
+	// the scripts' wishes (the host's keys)
+	void reload(bool save_first) // the game's thread
+	{
+		std::vector<std::string> cmds;
+		{
+			std::lock_guard<std::mutex> g(m);
+			if (role != "host" || !connected)
+				return;
+			if (save_first)
+				start_save("reload", cmds);
+			else
+				reload_saved = true;
+		}
+		for (auto& c : cmds)
+			Console->Execute(c.c_str());
+	}
+
+	// the scripts moved this game's actor (a test's jump): no travel
+	void moved()
+	{
+		if (g_actor)
+		{
+			last_pos = g_actor->Position();
+			last_level = Level().name().c_str();
+		}
 	}
 
 	void start(const std::string& r, LPCSTR name, LPCSTR ver)
@@ -564,7 +939,14 @@ struct Bridge
 		received_token.clear();
 		session_arrived = false;
 		session_token.clear();
+		theirs = Presence();
+		sent_presence.clear();
+		world_sent = false;
+		save_mode.clear();
+		expect_reloading = load_own = reload_saved = false;
+		load_at = lost_since = 0;
 		running = true;
+		register_frame();
 		static bool wsa = false;
 		if (!wsa)
 		{
@@ -605,6 +987,21 @@ Bridge& bridge()
 {
 	static Bridge* b = new Bridge;
 	return *b;
+}
+
+// the session's clock: the engine's frame, in the main menu as in a game
+struct SessionFrame : pureFrame
+{
+	void _BCL OnFrame() override { bridge().session_frame(); }
+};
+
+void register_frame()
+{
+	static SessionFrame* f = nullptr;
+	if (f)
+		return;
+	f = new SessionFrame;
+	Device.seqFrame.Add(f, REG_PRIORITY_LOW);
 }
 } // namespace
 
@@ -800,6 +1197,10 @@ bool take_session()
 }
 
 void stop() { bridge().stop(); }
+
+void session_reload(bool save_first) { bridge().reload(save_first); }
+
+void session_moved() { bridge().moved(); }
 
 bool active() { return bridge().running; }
 

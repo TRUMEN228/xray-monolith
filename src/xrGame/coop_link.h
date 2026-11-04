@@ -24,6 +24,11 @@ bool take_session();
 void stop();
 bool active();
 
+// the session (r12): the host's keys reload both games - with a new save of the world, or with the session save
+// the scripts put in place (the last save); the scripts moved the actor themselves (a test's jump: no travel)
+void session_reload(bool save_first);
+void session_moved();
+
 // the game's frame (the text of coop_out.txt): states and events for the partner
 void game_out(LPCSTR text);
 // the frame for the game (the text of coop_in.txt), or nullptr when nothing changed and it is not time to say alive
