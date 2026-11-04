@@ -1,0 +1,206 @@
+////////////////////////////////////////////////////////////////////////////
+//	Module 		: coop_creatures.cpp
+//	Description : Anomaly Co-op: the host's creatures in the guest's game (see coop_creatures.h).
+//	              A record: id, section crc, position, health, mental state, body, weapon strap, relation to the
+//	              players, the enemy (another creature's id, the host or the guest). Ids are the host's; the
+//	              guest finds its copies through the scripts' id pairs (spawns made on both sides differ).
+////////////////////////////////////////////////////////////////////////////
+
+#include "pch_script.h"
+#include "coop_creatures.h"
+#include "Level.h"
+#include "Actor.h"
+#include "CustomMonster.h"
+#include "ai/stalker/ai_stalker.h"
+#include "script_game_object.h"
+#include "memory_manager.h"
+#include "enemy_manager.h"
+#include "movement_manager.h"
+#include "detail_path_manager.h"
+#include "ai_monster_space.h"
+
+#include <map>
+
+namespace coop_creatures
+{
+namespace
+{
+const float RADIUS = 150.f;     // as far as creatures come online: closer, the guest's own AI would have them elsewhere
+const float JUMP = 12.f;        // a copy this far from the host's position is put there, not walked
+const float SNAP = 3.f;         // a creature that becomes a copy is put in place when this far
+const u32 HOLD_MS = 6500;       // without an update this long a copy goes back to its own AI
+const u16 NONE = 0xffff, HOST = 0xfffe, GUEST = 0xfffd;
+
+#pragma pack(push, 1)
+struct Record
+{
+	u16 id;
+	u32 sect;      // crc of the section: an id pair the scripts have not made yet must not drive another creature
+	float x, y, z;
+	u8 health;     // 0..255
+	u8 mental;     // EMentalState, 255 not a stalker
+	u8 body;       // 0 crouch, 1 stand, 255 not a stalker
+	u8 strap;      // 1 the weapon on the back, 0 in the hands, 255 not a stalker
+	u8 rel;        // 0 friend, 1 neutral, 2 enemy (to the host)
+	u16 enemy;     // a creature's host id, HOST, GUEST or NONE
+};
+#pragma pack(pop)
+
+std::map<u16, u16> h2g;           // host id -> id here
+u16 partner = NONE;               // the partner's puppet, an id here
+std::map<u16, u32> copies;        // guest: copies driven now -> time of their last update
+std::map<u16, u16> targets;       // guest: copy -> whom it fights (an id here)
+
+u16 local_id(u16 host_id)
+{
+	auto it = h2g.find(host_id);
+	return it == h2g.end() ? host_id : it->second;
+}
+
+u32 sect_crc(const CObject* o)
+{
+	LPCSTR s = o->cNameSect().c_str();
+	return s ? crc32(s, xr_strlen(s)) : 0;
+}
+
+void release(u16 id)
+{
+	if (CCustomMonster* m = smart_cast<CCustomMonster*>(Level().Objects.net_Find(id)))
+		m->net_puppet(false, 0);
+	copies.erase(id);
+	targets.erase(id);
+}
+} // namespace
+
+void collect(std::string& out, u32 now)
+{
+	out.clear();
+	if (!g_pGameLevel || !g_actor)
+		return;
+	Fvector me = g_actor->Position();
+	CObject* p = partner != NONE ? Level().Objects.net_Find(partner) : nullptr;
+	Fvector them = p ? p->Position() : me;
+	out.append((const char*)&now, 4);
+	CScriptGameObject* actor_lua = g_actor->lua_game_object();
+	for (u32 i = 0, n = Level().Objects.o_count(); i < n; i++)
+	{
+		CObject* o = Level().Objects.o_get_by_iterator(i);
+		CCustomMonster* m = smart_cast<CCustomMonster*>(o);
+		if (!m || !m->g_Alive() || m->getDestroy())
+			continue;
+		const Fvector& pos = m->Position();
+		if (pos.distance_to(me) > RADIUS && pos.distance_to(them) > RADIUS)
+			continue;
+		Record r;
+		r.id = m->ID();
+		r.sect = sect_crc(m);
+		r.x = pos.x;
+		r.y = pos.y;
+		r.z = pos.z;
+		r.health = (u8)iFloor(clampr(m->GetfHealth(), 0.f, 1.f) * 255.f + 0.5f);
+		r.mental = r.body = r.strap = 255;
+		r.rel = 2;
+		CScriptGameObject* lua = m->lua_game_object();
+		if (smart_cast<CAI_Stalker*>(m))
+		{
+			r.mental = (u8)lua->mental_state();
+			r.body = lua->body_state() == MonsterSpace::eBodyStateCrouch ? 0 : 1;
+			r.strap = lua->weapon_strapped() ? 1 : 0;
+			ALife::ERelationType rel = lua->GetRelationType(actor_lua);
+			r.rel = rel == ALife::eRelationTypeFriend ? 0 : (rel == ALife::eRelationTypeEnemy ? 2 : 1);
+		}
+		r.enemy = NONE;
+		if (const CEntityAlive* e = m->memory().enemy().selected())
+			r.enemy = e->ID() == g_actor->ID() ? HOST : (e->ID() == partner ? GUEST : e->ID());
+		out.append((const char*)&r, sizeof(r));
+	}
+}
+
+void apply(const std::string& payload)
+{
+	if (!g_pGameLevel || !g_actor || payload.size() < 4)
+		return;
+	u32 stamp = *(const u32*)payload.data();
+	u32 now = Device.dwTimeGlobal;
+	CScriptGameObject* actor_lua = g_actor->lua_game_object();
+	for (size_t off = 4; off + sizeof(Record) <= payload.size(); off += sizeof(Record))
+	{
+		const Record& r = *(const Record*)(payload.data() + off);
+		u16 id = local_id(r.id);
+		CCustomMonster* m = smart_cast<CCustomMonster*>(Level().Objects.net_Find(id));
+		if (!m || !m->g_Alive() || m->getDestroy() || sect_crc(m) != r.sect)
+			continue;
+		Fvector pos = {r.x, r.y, r.z};
+		bool driven = m->net_puppet_active();
+		// one far from the host's position (its own AI took it elsewhere, a load, a jump) is put there first
+		if (m->Position().distance_to(pos) > (driven ? JUMP : SNAP))
+		{
+			Fmatrix F = m->XFORM();
+			F.c = pos;
+			m->movement().detail().make_inactual();
+			if (m->animation_movement_controlled())
+				m->destroy_anim_mov_ctrl();
+			m->ForceTransform(F);
+		}
+		if (!driven)
+			m->net_puppet(true, 0);
+		m->net_puppet_push(pos, stamp);
+		copies[id] = now;
+		// hurt on the host: hurt here (a health that went up comes with the creature's own healing)
+		float h = r.health / 255.f;
+		if (h < m->GetfHealth() - 0.05f)
+			m->SetfHealth(h);
+		if (r.mental != 255)
+		{
+			m->net_puppet_set_mental(r.mental);
+			m->net_puppet_set_body(r.body);
+			m->net_puppet_set_strap(r.strap);
+			// whoever it is hostile to on the host, it is hostile to the whole team
+			CScriptGameObject* lua = m->lua_game_object();
+			if (r.rel == 2 && lua->GetRelationType(actor_lua) != ALife::eRelationTypeEnemy)
+				lua->SetRelation(ALife::eRelationTypeEnemy, actor_lua);
+		}
+		if (r.enemy == NONE)
+			targets.erase(id);
+		else
+			targets[id] = r.enemy == HOST ? partner : (r.enemy == GUEST ? g_actor->ID() : local_id(r.enemy));
+	}
+}
+
+void update(u32 now)
+{
+	if (!g_pGameLevel || !g_actor)
+	{
+		copies.clear();
+		targets.clear();
+		return;
+	}
+	for (auto it = copies.begin(); it != copies.end();)
+	{
+		u16 id = it->first;
+		CCustomMonster* m = smart_cast<CCustomMonster*>(Level().Objects.net_Find(id));
+		// a dead body falls by itself; one the host no longer sends goes back to its own AI
+		bool gone = !m || !m->g_Alive() || now - it->second > HOLD_MS;
+		++it;
+		if (gone)
+			release(id);
+	}
+}
+
+void release_all()
+{
+	while (!copies.empty())
+		release(copies.begin()->first);
+}
+
+void map(u16 host_id, u16 id) { h2g[host_id] = id; }
+void unmap(u16 host_id) { h2g.erase(host_id); }
+void clear_map() { h2g.clear(); }
+void set_partner(u16 id) { partner = id; }
+
+u16 target_of(u16 id)
+{
+	auto it = targets.find(id);
+	return it == targets.end() ? NONE : it->second;
+}
+} // namespace coop_creatures

@@ -13,6 +13,7 @@
 #include "pch_script.h"
 #include "coop_link.h"
 #include "coop_link_net.h"
+#include "coop_creatures.h"
 #include "Level.h"
 #include "Actor.h"
 #include "UIGameCustom.h"
@@ -43,7 +44,7 @@ namespace
 // Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it
 const char* PROTOCOL = "8";
 const char* ENGINE_REVISION = "12"; // coop_engine_version(), told to the partner in the hello
-enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8 };
+enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
 const u64 TRAVEL_RECENT_MS = 120000; // a load this soon after the last moment in a game is a travel
@@ -52,6 +53,7 @@ const float TRAVEL_FAR = 100.f;      // a load this far from the last place, on 
 const float JUMP_FAR = 60.f;         // a move this far within a second, without a load (the PDA's travel)
 const u64 SAVE_RETRY_MS = 2500, SAVE_GIVE_UP_MS = 10000;
 const u64 LOST_KICK_MS = 8000;       // the host gone this long: the guest's game ends
+const u64 CREATURES_MS = 200;        // the host's creatures go to the guest 5 times per second
 
 // where this game is: the main menu, a level that is loading, or a game
 std::string where_now()
@@ -275,6 +277,10 @@ struct Bridge
 	u64 load_at = 0;
 	bool hosted = false;               // this game runs the host's world (the session loaded it)
 	u64 lost_since = 0;
+	// the host's creatures (coop_creatures): the newest frame that came, for the game's thread
+	std::string creatures_in;
+	bool creatures_new = false;
+	u64 next_creatures = 0;
 
 	// the game knows only the saves it found when it started: a world written since then must be shown to it
 	void rescan_saves() // under m, on the game's thread
@@ -497,6 +503,10 @@ struct Bridge
 				theirs.hosted = p.size() > 4 && p[4] == "1";
 				break;
 			}
+		case MsgCreatures:
+			creatures_in = body;
+			creatures_new = true;
+			break;
 		case MsgState:
 			for (auto& line : split(body, '\n'))
 			{
@@ -718,7 +728,8 @@ struct Bridge
 		std::vector<std::string> cmds;
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
-		bool host_role;
+		bool host_role, send_creatures = false, link_up;
+		std::string creatures;
 		{
 			std::lock_guard<std::mutex> g(m);
 			host_role = role == "host";
@@ -735,6 +746,19 @@ struct Bridge
 			}
 			if (!connected)
 				world_sent = false;
+			link_up = connected;
+			// the creatures: the host sends while both are in a game on one level, the guest takes the newest
+			if (role == "host" && connected && where == "game" && theirs.where == "game" && theirs.level == level &&
+				now >= next_creatures)
+			{
+				next_creatures = now + CREATURES_MS;
+				send_creatures = true;
+			}
+			if (creatures_new)
+			{
+				creatures_new = false;
+				creatures.swap(creatures_in);
+			}
 
 			if (host_role)
 			{
@@ -889,7 +913,28 @@ struct Bridge
 			if (!theirs.where.empty())
 				their_prev_where = theirs.where;
 		}
+		// a load starts the scripts' id pairs anew
+		if (where != "game" && my_where == "game")
+			coop_creatures::clear_map();
 		my_where = where;
+		if (where == "game")
+		{
+			if (send_creatures)
+			{
+				std::string out;
+				coop_creatures::collect(out, Device.dwTimeGlobal);
+				std::lock_guard<std::mutex> g(m);
+				queue(MsgCreatures, out);
+			}
+			if (!host_role)
+			{
+				if (!creatures.empty())
+					coop_creatures::apply(creatures);
+				if (!link_up)
+					coop_creatures::release_all();
+				coop_creatures::update(Device.dwTimeGlobal);
+			}
+		}
 		if (!sent_mode.empty())
 			call_script("coop_session.engine_world_sent", sent_mode.c_str());
 		if (!before_load.empty())
