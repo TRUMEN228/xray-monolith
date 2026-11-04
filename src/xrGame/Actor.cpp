@@ -563,10 +563,23 @@ struct playing_pred
 void CActor::Hit(SHit* pHDS)
 {
 	// the partner's real damage is applied in the partner's own game; the mod hears the hit for friendly fire
+	// and (r12) hands it all to the partner's game: power, type, bone, who and from where
 	if (m_coop_net)
 	{
-		if (const CGameObject* who = smart_cast<const CGameObject*>(pHDS->who))
+		const CGameObject* who = smart_cast<const CGameObject*>(pHDS->who);
+		if (who)
 			callback(GameObject::eHit)(lua_game_object(), pHDS->damage(), pHDS->direction(), who->lua_game_object(), pHDS->boneID);
+		::luabind::functor<void> partner_hit;
+		if (ai().script_engine().functor("coop_combat.partner_hit", partner_hit))
+		{
+			LPCSTR bone = "";
+			IKinematics* k = smart_cast<IKinematics*>(Visual());
+			if (k && pHDS->boneID != BI_NONE && pHDS->boneID < k->LL_BoneCount())
+				bone = k->LL_BoneName_dbg(pHDS->boneID);
+			Fvector d = pHDS->direction();
+			partner_hit(pHDS->damage(), (int)pHDS->hit_type, bone, who ? (int)who->ID() : -1, d.x, d.y, d.z,
+				pHDS->phys_impulse());
+		}
 		return;
 	}
 
