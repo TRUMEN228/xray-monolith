@@ -121,8 +121,6 @@ BOOL CBulletManager::test_callback(const collide::ray_defs& rd, CObject* object,
 						{
 							bRes = FALSE; // don't hit actor
 							play_whine = true; // play whine sound
-							if (actor->coop_net_actor())
-								Msg("~ coop bullet: the partner missed by chance (%.2f)", ahp * hpf);
 						}
 						else
 						{
@@ -139,8 +137,6 @@ BOOL CBulletManager::test_callback(const collide::ray_defs& rd, CObject* object,
 								bRes = FALSE; // don't hit actor
 								play_whine = true; // play whine sound
 							}
-							if (actor->coop_net_actor())
-								Msg("~ coop bullet: the partner's bones %s", bRes ? "hit" : "missed");
 						}
 					}
 					// play whine sound
