@@ -2,8 +2,10 @@
 //	Module 		: coop_creatures.cpp
 //	Description : Anomaly Co-op: the host's creatures in the guest's game (see coop_creatures.h).
 //	              A record: id, section crc, position, health, mental state, body, weapon strap, relation to the
-//	              players, the enemy (another creature's id, the host or the guest). Ids are the host's; the
-//	              guest finds its copies through the scripts' id pairs (spawns made on both sides differ).
+//	              players, the enemy (another creature's id, the host or the guest), whether it is dead. Ids are the
+//	              host's; the guest finds its copies through the scripts' id pairs (spawns made on both sides differ).
+//	              One that dies on the host is sent on for a while: the guest's copy dies too, and its body is put
+//	              where the host's came to rest (3 s and 12 s after, when it has stopped sliding).
 ////////////////////////////////////////////////////////////////////////////
 
 #include "pch_script.h"
@@ -30,6 +32,10 @@ const float JUMP = 12.f;        // a copy this far from the host's position is p
 const float SNAP = 3.f;         // a creature that becomes a copy is put in place when this far
 const u32 HOLD_MS = 6500;       // without an update this long a copy goes back to its own AI
 const u16 NONE = 0xffff, HOST = 0xfffe, GUEST = 0xfffd;
+const u32 DEAD_SEND_MS = 15000; // a body's place goes on this long after the death
+const u32 BODY_FIRST_MS = 3000, BODY_LAST_MS = 12000; // when the guest puts a body where the host's lies
+const float BODY_OFF = 1.f;      // closer than this it stays where it fell
+const u8 FLAG_DEAD = 1;
 
 #pragma pack(push, 1)
 struct Record
@@ -43,6 +49,7 @@ struct Record
 	u8 strap;      // 1 the weapon on the back, 0 in the hands, 255 not a stalker
 	u8 rel;        // 0 friend, 1 neutral, 2 enemy (to the host)
 	u16 enemy;     // a creature's host id, HOST, GUEST or NONE
+	u8 flags;      // FLAG_DEAD
 };
 #pragma pack(pop)
 
@@ -50,6 +57,14 @@ std::map<u16, u16> h2g;           // host id -> id here
 u16 partner = NONE;               // the partner's puppet, an id here
 std::map<u16, u32> copies;        // guest: copies driven now -> time of their last update
 std::map<u16, u16> targets;       // guest: copy -> whom it fights (an id here)
+std::map<u16, u32> sent_alive;    // host: creatures sent alive -> when last
+std::map<u16, u32> died;          // host: those of them that died -> when
+struct Body
+{
+	u32 since;
+	int moves;
+};
+std::map<u16, Body> bodies;       // guest: copies that died by the host's word -> when, how often put in place
 
 u16 local_id(u16 host_id)
 {
@@ -77,6 +92,7 @@ void collect(std::string& out, u32 now)
 	out.clear();
 	if (!g_pGameLevel || !g_actor)
 		return;
+	u32 t = Device.dwTimeGlobal;
 	Fvector me = g_actor->Position();
 	CObject* p = partner != NONE ? Level().Objects.net_Find(partner) : nullptr;
 	Fvector them = p ? p->Position() : me;
@@ -86,12 +102,28 @@ void collect(std::string& out, u32 now)
 	{
 		CObject* o = Level().Objects.o_get_by_iterator(i);
 		CCustomMonster* m = smart_cast<CCustomMonster*>(o);
-		if (!m || !m->g_Alive() || m->getDestroy())
+		if (!m || m->getDestroy())
 			continue;
+		bool alive = !!m->g_Alive();
+		if (!alive)
+		{
+			// a body: only one sent alive before, and only for a while after its death
+			auto d = died.find(m->ID());
+			if (d == died.end())
+			{
+				if (sent_alive.find(m->ID()) == sent_alive.end())
+					continue;
+				d = died.emplace(m->ID(), t).first;
+				sent_alive.erase(m->ID());
+			}
+			if (t - d->second > DEAD_SEND_MS)
+				continue;
+		}
 		const Fvector& pos = m->Position();
-		if (pos.distance_to(me) > RADIUS && pos.distance_to(them) > RADIUS)
+		if (alive && pos.distance_to(me) > RADIUS && pos.distance_to(them) > RADIUS)
 			continue;
 		Record r;
+		r.flags = alive ? 0 : FLAG_DEAD;
 		r.id = m->ID();
 		r.sect = sect_crc(m);
 		r.x = pos.x;
@@ -100,6 +132,13 @@ void collect(std::string& out, u32 now)
 		r.health = (u8)iFloor(clampr(m->GetfHealth(), 0.f, 1.f) * 255.f + 0.5f);
 		r.mental = r.body = r.strap = 255;
 		r.rel = 2;
+		r.enemy = NONE;
+		if (!alive)
+		{
+			out.append((const char*)&r, sizeof(r));
+			continue;
+		}
+		sent_alive[m->ID()] = t;
 		CScriptGameObject* lua = m->lua_game_object();
 		if (smart_cast<CAI_Stalker*>(m))
 		{
@@ -109,11 +148,15 @@ void collect(std::string& out, u32 now)
 			ALife::ERelationType rel = lua->GetRelationType(actor_lua);
 			r.rel = rel == ALife::eRelationTypeFriend ? 0 : (rel == ALife::eRelationTypeEnemy ? 2 : 1);
 		}
-		r.enemy = NONE;
 		if (const CEntityAlive* e = m->memory().enemy().selected())
 			r.enemy = e->ID() == g_actor->ID() ? HOST : (e->ID() == partner ? GUEST : e->ID());
 		out.append((const char*)&r, sizeof(r));
 	}
+	// the gone ones are forgotten now and then
+	for (auto it = sent_alive.begin(); it != sent_alive.end();)
+		it = t - it->second > 60000 ? sent_alive.erase(it) : ++it;
+	for (auto it = died.begin(); it != died.end();)
+		it = t - it->second > 60000 ? died.erase(it) : ++it;
 }
 
 void apply(const std::string& payload)
@@ -128,9 +171,36 @@ void apply(const std::string& payload)
 		const Record& r = *(const Record*)(payload.data() + off);
 		u16 id = local_id(r.id);
 		CCustomMonster* m = smart_cast<CCustomMonster*>(Level().Objects.net_Find(id));
-		if (!m || !m->g_Alive() || m->getDestroy() || sect_crc(m) != r.sect)
+		if (!m || m->getDestroy() || sect_crc(m) != r.sect)
 			continue;
 		Fvector pos = {r.x, r.y, r.z};
+		if (r.flags & FLAG_DEAD)
+		{
+			if (m->g_Alive())
+			{
+				// dead on the host: dead here, by the host's hand (no credit to this player)
+				release(id);
+				m->KillEntity(partner != NONE ? partner : id);
+				bodies[id] = {now, 0};
+			}
+			else
+			{
+				// the body where the host's came to rest, once it has stopped sliding (twice: it may still slide)
+				auto b = bodies.find(id);
+				if (b == bodies.end())
+					b = bodies.emplace(id, Body{now, 0}).first;
+				u32 wait = b->second.moves == 0 ? BODY_FIRST_MS : BODY_LAST_MS;
+				if (b->second.moves < 2 && now - b->second.since >= wait)
+				{
+					b->second.moves++;
+					if (m->Position().distance_to(pos) > BODY_OFF)
+						m->lua_game_object()->ForceSetPosition(pos, false);
+				}
+			}
+			continue;
+		}
+		if (!m->g_Alive())
+			continue;
 		bool driven = m->net_puppet_active();
 		// one far from the host's position (its own AI took it elsewhere, a load, a jump) is put there first
 		if (m->Position().distance_to(pos) > (driven ? JUMP : SNAP))
@@ -173,8 +243,11 @@ void update(u32 now)
 	{
 		copies.clear();
 		targets.clear();
+		bodies.clear();
 		return;
 	}
+	for (auto it = bodies.begin(); it != bodies.end();)
+		it = now - it->second.since > 60000 ? bodies.erase(it) : ++it;
 	for (auto it = copies.begin(); it != copies.end();)
 	{
 		u16 id = it->first;
