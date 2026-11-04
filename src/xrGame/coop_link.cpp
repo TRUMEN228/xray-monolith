@@ -65,6 +65,15 @@ std::string where_now()
 
 void register_frame();
 
+// the level's name ("" while a level is still loading and has none yet)
+std::string level_name()
+{
+	if (!g_pGameLevel)
+		return "";
+	LPCSTR n = Level().name().c_str();
+	return n ? n : "";
+}
+
 // a script function, if there is one ("module.function"); a failure there is not the session's
 void call_script(LPCSTR name, LPCSTR arg)
 {
@@ -705,7 +714,7 @@ struct Bridge
 			return;
 		u64 now = now_ms();
 		std::string where = where_now();
-		std::string level = g_pGameLevel ? Level().name().c_str() : "";
+		std::string level = level_name();
 		std::vector<std::string> cmds;
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
@@ -917,7 +926,7 @@ struct Bridge
 		if (g_actor)
 		{
 			last_pos = g_actor->Position();
-			last_level = Level().name().c_str();
+			last_level = level_name();
 		}
 	}
 
