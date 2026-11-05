@@ -33,5 +33,7 @@ void set_note(std::function<void(const std::string&)> note);
 
 // the scripts: a box that is not the world's (the exchange box), a while of changes that are the scripts' own
 void ignore_box(u16 id, bool ignore);
+// the host's choice: boxes and bodies shared (one's take is gone for the other too) or each player's own copy
+void set_shared(bool shared);
 void pause(u32 ms);
 } // namespace coop_items

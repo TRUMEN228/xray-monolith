@@ -79,6 +79,7 @@ std::set<u16> ignored;
 u32 paused_until = 0;
 bool applying = false;
 u32 box_seq = 0, box_acked = 0;
+bool shared = true;                         // boxes and bodies shared; off: each player has the same, its own
 std::function<void(const std::string&)> note_fn;
 
 // appdata\coop_items.txt on a test install: every line in and out (the engine's own log is lost when a game is killed)
@@ -295,6 +296,7 @@ CObject* ground_item(u16 id, const std::string& section, const Fvector& pos)
 void set_note(std::function<void(const std::string&)> note) { note_fn = note; }
 void ignore_box(u16 id, bool ignore) { if (ignore) ignored.insert(id); else ignored.erase(id); }
 void pause(u32 ms) { paused_until = Device.dwTimeGlobal + ms; }
+void set_shared(bool on) { shared = on; }
 
 void left(CObject* owner, CInventoryItem* item, bool destroyed)
 {
@@ -325,6 +327,8 @@ void entered(CObject* owner, CInventoryItem* item)
 		CObject* from = recent ? find(lf->second.from) : nullptr;
 		if (from && container(from))
 		{
+			if (!shared)
+				return; // (each player's own loot: a take from a box or a body is this player's alone)
 			// out of a box or a body
 			outgoing.push_back("btake|" + std::to_string(host_id(from->ID())) + "|" + std::to_string(host_id(id)) + "|" + sect(o) +
 				"|" + std::to_string(++box_seq));
@@ -336,7 +340,7 @@ void entered(CObject* owner, CInventoryItem* item)
 			outgoing.push_back("take|" + std::to_string(host_id(id)) + "|" + sect(o) + "|" + f2(p.x) + "|" + f2(p.y) + "|" + f2(p.z));
 		}
 	}
-	else if (container(owner) && recent && is_actor(find(lf->second.from)))
+	else if (shared && container(owner) && recent && is_actor(find(lf->second.from)))
 	{
 		// into a box or a body
 		drops.erase(id);
@@ -448,7 +452,7 @@ void frame(bool host, bool linked, std::vector<std::string>& out)
 				continue;
 			}
 			CObject* box = find(it->first);
-			if (box && smart_cast<CInventoryBox*>(box) && !ignored.count(box->ID()))
+			if (shared && box && smart_cast<CInventoryBox*>(box) && !ignored.count(box->ID()))
 			{
 				xr_vector<CInventoryItem*> list;
 				items_of(box, list);
@@ -506,6 +510,9 @@ void receive(bool host, const std::string& line)
 	trace("<", line);
 	auto a = split(line, '|');
 	const std::string& kind = a[0];
+	// (each player's own loot: the partner's box moves are not this game's; one from before the switch is dropped)
+	if (!shared && (kind == "btake" || kind == "bput" || kind == "bset" || kind == "bcond" || kind == "bdeny"))
+		return;
 	if (kind == "take" && a.size() >= 6)
 	{
 		Fvector p = {(float)atof(a[3].c_str()), (float)atof(a[4].c_str()), (float)atof(a[5].c_str())};
