@@ -60,6 +60,23 @@ bool applying = false;
 u32 box_seq = 0, box_acked = 0;
 std::function<void(const std::string&)> note_fn;
 
+// appdata\coop_items.txt: every line in and out (the engine's own log is lost when a game is killed)
+void trace(const char* dir, const std::string& line, const char* extra = "")
+{
+	static FILE* f = nullptr;
+	if (!f)
+	{
+		string_path p;
+		FS.update_path(p, "$app_data_root$", "coop_items.txt");
+		f = fopen(p, "w");
+	}
+	if (f)
+	{
+		fprintf(f, "[%u] %s %s%s\n", Device.dwTimeGlobal, dir, line.c_str(), extra);
+		fflush(f);
+	}
+}
+
 std::vector<std::string> split(const std::string& s, char c)
 {
 	std::vector<std::string> out;
@@ -385,7 +402,7 @@ void frame(bool host, bool linked, std::vector<std::string>& out)
 		loot_at.clear();
 	}
 	for (auto& l : outgoing)
-		Msg("~ coop items: > %s%s", l.c_str(), linked ? "" : " (not sent: the partner is elsewhere)");
+		trace(">", l, linked ? "" : " (not sent: the partner is elsewhere)");
 	if (linked)
 		out.swap(outgoing);
 	outgoing.clear();
@@ -395,7 +412,7 @@ void receive(bool host, const std::string& line)
 {
 	if (!g_pGameLevel || !g_actor)
 		return;
-	Msg("~ coop items: < %s", line.c_str());
+	trace("<", line);
 	auto a = split(line, '|');
 	const std::string& kind = a[0];
 	if (kind == "take" && a.size() >= 6)
