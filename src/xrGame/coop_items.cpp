@@ -384,6 +384,8 @@ void frame(bool host, bool linked, std::vector<std::string>& out)
 		snap_at.clear();
 		loot_at.clear();
 	}
+	for (auto& l : outgoing)
+		Msg("~ coop items: > %s%s", l.c_str(), linked ? "" : " (not sent: the partner is elsewhere)");
 	if (linked)
 		out.swap(outgoing);
 	outgoing.clear();
@@ -393,6 +395,7 @@ void receive(bool host, const std::string& line)
 {
 	if (!g_pGameLevel || !g_actor)
 		return;
+	Msg("~ coop items: < %s", line.c_str());
 	auto a = split(line, '|');
 	const std::string& kind = a[0];
 	if (kind == "take" && a.size() >= 6)
