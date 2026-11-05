@@ -1021,6 +1021,7 @@
     <ClInclude Include="CustomDevice.h" />
     <ClInclude Include="coop_net_puppet.h" />
     <ClInclude Include="coop_creatures.h" />
+    <ClInclude Include="coop_items.h" />
     <ClInclude Include="coop_link.h" />
     <ClInclude Include="coop_link_net.h" />
     <ClInclude Include="coop_update.h" />
@@ -2726,6 +2727,10 @@
     <ClCompile Include="CustomDetector.cpp" />
     <ClCompile Include="CustomDevice.cpp" />
     <ClCompile Include="coop_net_puppet.cpp" />
+    <ClCompile Include="coop_items.cpp">
+      <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
     <ClCompile Include="coop_creatures.cpp">
       <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>

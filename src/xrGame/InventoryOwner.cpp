@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "coop_items.h"
 #include "InventoryOwner.h"
 #include "entity_alive.h"
 #include "pda.h"
@@ -345,6 +346,7 @@ void CInventoryOwner::OnItemTake(CInventoryItem* inventory_item)
 	CGameObject* object = smart_cast<CGameObject*>(this);
 	VERIFY(object);
 	object->callback(GameObject::eOnItemTake)(inventory_item->object().lua_game_object());
+	coop_items::entered(object, inventory_item);
 
 	attach(inventory_item);
 
@@ -509,6 +511,7 @@ void CInventoryOwner::OnItemDrop(CInventoryItem* inventory_item, bool just_befor
 	CGameObject* object = smart_cast<CGameObject*>(this);
 	VERIFY(object);
 	object->callback(GameObject::eOnItemDrop)(inventory_item->object().lua_game_object());
+	coop_items::left(object, inventory_item, just_before_destroy);
 
 	detach(inventory_item);
 }

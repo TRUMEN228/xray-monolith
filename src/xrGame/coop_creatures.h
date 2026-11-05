@@ -25,6 +25,9 @@ void map(u16 host_id, u16 local_id);
 void unmap(u16 host_id);
 void clear_map();
 void set_partner(u16 id);
+// the pairs both ways (an id with no pair is the same in both games)
+u16 local_id_of(u16 host_id);
+u16 host_id(u16 local_id);
 // guest: whom this creature fights on the host, as an id here (65535 none)
 u16 target_of(u16 id);
 } // namespace coop_creatures

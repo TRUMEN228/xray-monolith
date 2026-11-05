@@ -14,6 +14,7 @@
 #include "coop_link.h"
 #include "coop_link_net.h"
 #include "coop_creatures.h"
+#include "coop_items.h"
 #include "Level.h"
 #include "Actor.h"
 #include "UIGameCustom.h"
@@ -41,10 +42,10 @@ namespace coop_link
 namespace
 {
 // protocol 8: the session in the engine (presence frames; the world and reloads no longer pass the scripts).
-// Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it
-const char* PROTOCOL = "8";
-const char* ENGINE_REVISION = "12"; // coop_engine_version(), told to the partner in the hello
-enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9 };
+// Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it. 9 (r13): the items' lines (MsgItems)
+const char* PROTOCOL = "9";
+const char* ENGINE_REVISION = "13"; // coop_engine_version(), told to the partner in the hello
+enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
 const u64 TRAVEL_RECENT_MS = 120000; // a load this soon after the last moment in a game is a travel
@@ -280,6 +281,7 @@ struct Bridge
 	// the host's creatures (coop_creatures): the newest frame that came, for the game's thread
 	std::string creatures_in;
 	bool creatures_new = false;
+	std::deque<std::string> items_in;  // the partner's item moves (coop_items), in order
 	u64 next_creatures = 0;
 
 	// the game knows only the saves it found when it started: a world written since then must be shown to it
@@ -507,6 +509,9 @@ struct Bridge
 			creatures_in = body;
 			creatures_new = true;
 			break;
+		case MsgItems:
+			items_in.push_back(body);
+			break;
 		case MsgState:
 			for (auto& line : split(body, '\n'))
 			{
@@ -728,8 +733,9 @@ struct Bridge
 		std::vector<std::string> cmds;
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
-		bool host_role, send_creatures = false, link_up;
+		bool host_role, send_creatures = false, link_up, items_linked = false;
 		std::string creatures;
+		std::deque<std::string> items;
 		{
 			std::lock_guard<std::mutex> g(m);
 			host_role = role == "host";
@@ -754,6 +760,9 @@ struct Bridge
 				next_creatures = now + CREATURES_MS;
 				send_creatures = true;
 			}
+			// the items: while both are in a game on one level
+			items_linked = connected && where == "game" && theirs.where == "game" && theirs.level == level;
+			items.swap(items_in);
 			if (creatures_new)
 			{
 				creatures_new = false;
@@ -919,6 +928,16 @@ struct Bridge
 		my_where = where;
 		if (where == "game")
 		{
+			for (auto& line : items)
+				coop_items::receive(host_role, line);
+			std::vector<std::string> moves;
+			coop_items::frame(host_role, items_linked, moves);
+			if (!moves.empty())
+			{
+				std::lock_guard<std::mutex> g(m);
+				for (auto& line : moves)
+					queue(MsgItems, line);
+			}
 			if (send_creatures)
 			{
 				std::string out;
@@ -996,6 +1015,12 @@ struct Bridge
 		theirs = Presence();
 		sent_presence.clear();
 		world_sent = false;
+		items_in.clear();
+		coop_items::set_note([this](const std::string& s)
+		{
+			std::lock_guard<std::mutex> g(m);
+			note(s);
+		});
 		save_mode.clear();
 		expect_reloading = load_own = reload_saved = false;
 		load_at = lost_since = 0;

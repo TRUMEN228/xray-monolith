@@ -9,6 +9,7 @@
 #include "pch_script.h"
 #include "coop_link.h"
 #include "coop_creatures.h"
+#include "coop_items.h"
 #include "coop_update.h"
 #include "UIGameSP.h"
 #include "ui/UITalkWnd.h"
@@ -53,7 +54,10 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 //     calls coop_session.engine_before_load(why) and coop_menu.engine_loading() before it loads; the host's creatures
 //     go to the guest's copies in the engine (coop_creatures): coop_net_map/unmap(host id, id), coop_net_set_partner,
 //     coop_net_target(id); a hit on the partner goes to coop_combat.partner_hit
-static int coop_engine_version() { return 12; }
+// 13: items in the engine (coop_items, link protocol 9): takes from boxes, bodies and the ground, drops, puts, the
+//     host's box lists and bodies' loot; coop_items_ignore(id, on), coop_items_pause(ms); new items through
+//     coop_world.engine_spawn, open windows shown anew through coop_world.engine_refresh
+static int coop_engine_version() { return 13; }
 
 // the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
 static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }
@@ -73,6 +77,8 @@ static void coop_net_map(int host_id, int id) { coop_creatures::map((u16)host_id
 static void coop_net_unmap(int host_id) { coop_creatures::unmap((u16)host_id); }
 static void coop_net_set_partner(int id) { coop_creatures::set_partner(id < 0 ? u16(-1) : (u16)id); }
 static int coop_net_target(int id) { return coop_creatures::target_of((u16)id); }
+static void coop_items_ignore(int id, bool ignore) { coop_items::ignore_box((u16)id, ignore); }
+static void coop_items_pause(int ms) { coop_items::pause((u32)_max(ms, 0)); }
 static void coop_update_check(LPCSTR current) { coop_update::check(current); }
 static void coop_update_download() { coop_update::download(); }
 static bool coop_update_apply() { return coop_update::apply(); }
@@ -314,6 +320,8 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_net_unmap", &::coop_net_unmap),
 		def("coop_net_set_partner", &::coop_net_set_partner),
 		def("coop_net_target", &::coop_net_target),
+		def("coop_items_ignore", &::coop_items_ignore),
+		def("coop_items_pause", &::coop_items_pause),
 		def("coop_update_check", &::coop_update_check),
 		def("coop_update_download", &::coop_update_download),
 		def("coop_update_apply", &::coop_update_apply),

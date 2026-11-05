@@ -10,6 +10,7 @@
 
 #include "pch_script.h"
 #include "coop_creatures.h"
+#include "coop_items.h"
 #include "Level.h"
 #include "Actor.h"
 #include "CustomMonster.h"
@@ -54,6 +55,7 @@ struct Record
 #pragma pack(pop)
 
 std::map<u16, u16> h2g;           // host id -> id here
+std::map<u16, u16> g2h;           // id here -> host id
 u16 partner = NONE;               // the partner's puppet, an id here
 std::map<u16, u32> copies;        // guest: copies driven now -> time of their last update
 std::map<u16, u16> targets;       // guest: copy -> whom it fights (an id here)
@@ -114,6 +116,7 @@ void collect(std::string& out, u32 now)
 				if (sent_alive.find(m->ID()) == sent_alive.end())
 					continue;
 				d = died.emplace(m->ID(), t).first;
+				coop_items::died(m->ID());
 				sent_alive.erase(m->ID());
 			}
 			if (t - d->second > DEAD_SEND_MS)
@@ -266,9 +269,29 @@ void release_all()
 		release(copies.begin()->first);
 }
 
-void map(u16 host_id, u16 id) { h2g[host_id] = id; }
-void unmap(u16 host_id) { h2g.erase(host_id); }
-void clear_map() { h2g.clear(); }
+void map(u16 host_id, u16 id)
+{
+	h2g[host_id] = id;
+	g2h[id] = host_id;
+}
+void unmap(u16 host_id)
+{
+	auto it = h2g.find(host_id);
+	if (it != h2g.end())
+		g2h.erase(it->second);
+	h2g.erase(host_id);
+}
+void clear_map()
+{
+	h2g.clear();
+	g2h.clear();
+}
+u16 local_id_of(u16 hid) { return local_id(hid); }
+u16 host_id(u16 id)
+{
+	auto it = g2h.find(id);
+	return it == g2h.end() ? id : it->second;
+}
 void set_partner(u16 id) { partner = id; }
 
 u16 target_of(u16 id)

@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "coop_items.h"
 #include "InventoryBox.h"
 #include "level.h"
 #include "actor.h"
@@ -41,6 +42,7 @@ void CInventoryBox::OnEvent(NET_Packet& P, u16 type)
 
 			CInventoryItem* pIItem = smart_cast<CInventoryItem*>(itm);
 			VERIFY(pIItem);
+			coop_items::entered(this, pIItem);
 			if (CurrentGameUI())
 			{
 				if (CurrentGameUI()->GetActorMenu().GetMenuMode() == mmDeadBodySearch)
@@ -68,6 +70,7 @@ void CInventoryBox::OnEvent(NET_Packet& P, u16 type)
 			bool dont_create_shell = (type == GE_TRADE_SELL) || just_before_destroy;
 
 			itm->H_SetParent(NULL, dont_create_shell);
+			coop_items::left(this, smart_cast<CInventoryItem*>(itm), just_before_destroy);
 
 			if (m_in_use)
 			{
