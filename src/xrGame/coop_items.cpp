@@ -166,12 +166,20 @@ void release(u16 id)
 	string128 b;
 	xr_sprintf(b, "release %u: %s, parent %u", id, se ? se->name() : "no server object", se ? se->ID_Parent : 0xffff);
 	trace("-", b);
+	applying = true;
 	if (se)
-	{
-		applying = true;
 		CALifeSimulator__release(const_cast<CALifeSimulator*>(&ai().alife()), se, true);
-		applying = false;
+	else if (Level().Objects.net_Find(id))
+	{
+		// one the game has and the server not (an NPC's bolt): destroyed through the game all the same
+		NET_Packet packet;
+		packet.w_begin(M_EVENT);
+		packet.w_u32(Level().timeServer());
+		packet.w_u16(GE_DESTROY);
+		packet.w_u16(id);
+		Level().Send(packet, net_flags(TRUE, TRUE));
 	}
+	applying = false;
 }
 
 // a new item through the scripts' helper (it sets the condition and the rounds as the game does)
@@ -434,10 +442,10 @@ void receive(bool host, const std::string& line)
 		if (CObject* o = ground_item(here_id((u16)atoi(a[1].c_str())), a[2], p))
 			release(o->ID());
 	}
-	else if (kind == "drop" && a.size() >= 10)
+	else if (kind == "drop" && a.size() >= 9)
 	{
-		Fvector p = {(float)atof(a[5].c_str()), (float)atof(a[6].c_str()), (float)atof(a[7].c_str())};
-		u32 lv = (u32)strtoul(a[8].c_str(), nullptr, 10), gv = (u32)strtoul(a[9].c_str(), nullptr, 10);
+		Fvector p = {(float)atof(a[4].c_str()), (float)atof(a[5].c_str()), (float)atof(a[6].c_str())};
+		u32 lv = (u32)strtoul(a[7].c_str(), nullptr, 10), gv = (u32)strtoul(a[8].c_str(), nullptr, 10);
 		if (lv == u32(-1) || !ai().level_graph().valid_vertex_id(lv))
 			lv = ai().level_graph().vertex_id(p);
 		if (gv == u32(-1) || gv > 0xffff)
