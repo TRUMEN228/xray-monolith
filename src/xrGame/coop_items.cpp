@@ -64,15 +64,20 @@ bool applying = false;
 u32 box_seq = 0, box_acked = 0;
 std::function<void(const std::string&)> note_fn;
 
-// appdata\coop_items.txt: every line in and out (the engine's own log is lost when a game is killed)
+// appdata\coop_items.txt on a test install: every line in and out (the engine's own log is lost when a game is killed)
 void trace(const char* dir, const std::string& line, const char* extra = "")
 {
 	static FILE* f = nullptr;
-	if (!f)
+	static bool checked = false;
+	if (!checked)
 	{
-		string_path p;
+		// only on a test install (appdata\coop_debug.txt)
+		checked = true;
+		string_path dbg, p;
+		FS.update_path(dbg, "$app_data_root$", "coop_debug.txt");
 		FS.update_path(p, "$app_data_root$", "coop_items.txt");
-		f = fopen(p, "w");
+		if (GetFileAttributesA(dbg) != INVALID_FILE_ATTRIBUTES)
+			f = fopen(p, "w");
 	}
 	if (f)
 	{
