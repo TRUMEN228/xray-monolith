@@ -35,6 +35,10 @@
 #include <map>
 #include <set>
 
+// the scripts' alife():release: an object in the game is destroyed through the game (a plain release would only
+// forget it on the server's side and leave it in the world)
+void CALifeSimulator__release(CALifeSimulator* self, CSE_Abstract* object, bool);
+
 namespace coop_items
 {
 namespace
@@ -153,10 +157,14 @@ void release(u16 id)
 {
 	if (!ai().get_alife())
 		return;
-	if (CSE_Abstract* se = ai().alife().objects().object(id, true))
+	CSE_Abstract* se = ai().alife().objects().object(id, true);
+	string128 b;
+	xr_sprintf(b, "release %u: %s, parent %u", id, se ? se->name() : "no server object", se ? se->ID_Parent : 0xffff);
+	trace("-", b);
+	if (se)
 	{
 		applying = true;
-		const_cast<CALifeSimulator&>(ai().alife()).release(se, true);
+		CALifeSimulator__release(const_cast<CALifeSimulator*>(&ai().alife()), se, true);
 		applying = false;
 	}
 }
