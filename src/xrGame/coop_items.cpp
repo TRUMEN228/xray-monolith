@@ -10,6 +10,9 @@
 //	                bcond|item|section|cond           host: the state of what the guest took (each game rolls loot)
 //	                bdeny|item|section                host: both took the same thing at once, the guest gives it up
 //	                loot|body|section|sec:cond:ammo;... host: a body's things (each game rolls its own)
+//	                throw|section|x|y|z|vx|vy|vz     a bolt or a grenade thrown: the partner's copy flies the same way
+//	                                                 (a grenade's copy goes before it would go off: the blast
+//	                                                 comes from the thrower's game)
 //	              The guest numbers its box changes (seq); a list from the host that does not have the guest's last
 //	              change yet is not applied (the next one will have it).
 ////////////////////////////////////////////////////////////////////////////
@@ -31,6 +34,9 @@
 #include "ai_object_location.h"
 #include "level_graph.h"
 #include "../xrServerEntities/xrServer_Objects_ALife.h"
+#include "PhysicsShellHolder.h"
+#include "../xrphysics/PhysicsShell.h"
+#include "Grenade.h"
 
 #include <map>
 #include <set>
@@ -47,6 +53,17 @@ const u32 SNAP_MS = 300;        // host: a box's list goes this long after its l
 const u32 LOOT_MS = 3000;       // host: a body's loot goes once death_manager has filled it
 const u32 KEEP_FRAMES = 10;     // an item's last move counts for the next one this many frames
 const float GROUND_RADIUS = 4.f;
+const u32 THROW_WAIT_MS = 2000;     // a thrown copy is looked for this long after it was made
+const u32 GRENADE_LIFE_MS = 3000;   // a grenade's copy goes then (it would not go off: it is no live one)
+
+struct Throw
+{
+	std::string section;
+	Fvector from, velocity;
+	u32 at;
+};
+std::vector<Throw> throws;          // copies of the partner's throws on their way into the world
+std::map<u16, u32> grenades;        // grenade copies -> when they go
 
 struct Left
 {
@@ -330,6 +347,56 @@ void entered(CObject* owner, CInventoryItem* item)
 
 void died(u16 id) { loot_at[id] = Device.dwTimeGlobal + LOOT_MS; }
 
+void thrown(CObject* missile, const Fvector& from, const Fvector& v)
+{
+	if (off() || !missile)
+		return;
+	outgoing.push_back("throw|" + sect(missile) + "|" + f2(from.x) + "|" + f2(from.y) + "|" + f2(from.z) + "|" + f2(v.x) + "|" +
+		f2(v.y) + "|" + f2(v.z));
+}
+
+namespace
+{
+// the partner's thrown things, once in the world: they fly as the partner's did
+void launch(u32 now)
+{
+	for (auto it = throws.begin(); it != throws.end();)
+	{
+		CObject* found = nullptr;
+		for (u32 i = 0, n = Level().Objects.o_count(); i < n && !found; i++)
+		{
+			CObject* o = Level().Objects.o_get_by_iterator(i);
+			CGameObject* go = smart_cast<CGameObject*>(o);
+			if (go && !o->H_Parent() && sect(o) == it->section && Device.dwFrame - go->spawn_time() < 60 &&
+				o->Position().distance_to(it->from) < 1.5f)
+				found = o;
+		}
+		CPhysicsShellHolder* h = smart_cast<CPhysicsShellHolder*>(found);
+		if (h && h->PPhysicsShell())
+		{
+			h->PPhysicsShell()->set_LinearVel(it->velocity);
+			if (smart_cast<CGrenade*>(found))
+				grenades[found->ID()] = now + GRENADE_LIFE_MS;
+			it = throws.erase(it);
+		}
+		else if (now - it->at > THROW_WAIT_MS)
+			it = throws.erase(it);
+		else
+			++it;
+	}
+	for (auto it = grenades.begin(); it != grenades.end();)
+	{
+		if (now < it->second)
+		{
+			++it;
+			continue;
+		}
+		release(it->first);
+		it = grenades.erase(it);
+	}
+}
+} // namespace
+
 void frame(bool host, bool linked, std::vector<std::string>& out)
 {
 	u32 now = Device.dwTimeGlobal;
@@ -338,6 +405,8 @@ void frame(bool host, bool linked, std::vector<std::string>& out)
 	{
 		last_left.clear();
 		drops.clear();
+		throws.clear();
+		grenades.clear();
 		outgoing.clear();
 		snap_at.clear();
 		loot_at.clear();
@@ -366,6 +435,7 @@ void frame(bool host, bool linked, std::vector<std::string>& out)
 	}
 	for (auto it = last_left.begin(); it != last_left.end();)
 		it = Device.dwFrame - it->second.frame > 200 ? last_left.erase(it) : ++it;
+	launch(now);
 
 	if (host)
 	{
@@ -451,6 +521,17 @@ void receive(bool host, const std::string& line)
 		if (gv == u32(-1) || gv > 0xffff)
 			gv = g_actor->ai_location().game_vertex_id();
 		spawn(a[1], u16(-1), a[2], a[3], &p, lv, gv);
+	}
+	else if (kind == "throw" && a.size() >= 8)
+	{
+		Throw t;
+		t.section = a[1];
+		t.from = {(float)atof(a[2].c_str()), (float)atof(a[3].c_str()), (float)atof(a[4].c_str())};
+		t.velocity = {(float)atof(a[5].c_str()), (float)atof(a[6].c_str()), (float)atof(a[7].c_str())};
+		t.at = Device.dwTimeGlobal;
+		u32 lv = ai().level_graph().vertex_id(t.from);
+		spawn(t.section, u16(-1), "1.000", "0", &t.from, lv, g_actor->ai_location().game_vertex_id());
+		throws.push_back(t);
 	}
 	else if (kind == "btake" && a.size() >= 5)
 	{

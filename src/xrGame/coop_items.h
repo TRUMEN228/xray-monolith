@@ -26,6 +26,8 @@ void frame(bool host, bool linked, std::vector<std::string>& out);
 void receive(bool host, const std::string& line);
 // a creature the host's engine saw die: its loot goes to the guest a moment later
 void died(u16 id);
+// this player threw a bolt or a grenade: from where, how fast (the partner's copy flies the same way)
+void thrown(CObject* missile, const Fvector& from, const Fvector& velocity);
 // a message for this player
 void set_note(std::function<void(const std::string&)> note);
 

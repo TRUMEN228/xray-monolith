@@ -1,4 +1,5 @@
 ﻿#include "stdafx.h"
+#include "coop_items.h"
 #include "missile.h"
 //.#include "WeaponHUD.h"
 #include "../xrphysics/PhysicsShell.h"
@@ -746,6 +747,10 @@ void CMissile::activate_physic_shell()
 		entity_alive->character_physics_support()->movement()->GetCharacterVelocity(parent_vel);
 		l_vel.add(parent_vel);
 	}
+
+	// this player's own throw: the partner's game throws a copy the same way (r13)
+	if (g_actor && H_Root() == g_actor)
+		coop_items::thrown(this, m_throw_matrix.c, l_vel);
 
 	R_ASSERT(!m_pPhysicsShell);
 	create_physic_shell();
