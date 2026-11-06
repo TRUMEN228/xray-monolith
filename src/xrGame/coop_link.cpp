@@ -15,6 +15,7 @@
 #include "coop_link_net.h"
 #include "coop_creatures.h"
 #include "coop_items.h"
+#include "coop_clock.h"
 #include "Level.h"
 #include "Actor.h"
 #include "UIGameCustom.h"
@@ -42,10 +43,11 @@ namespace coop_link
 namespace
 {
 // protocol 8: the session in the engine (presence frames; the world and reloads no longer pass the scripts).
-// Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it. 9 (r13): the items' lines (MsgItems)
-const char* PROTOCOL = "9";
-const char* ENGINE_REVISION = "13"; // coop_engine_version(), told to the partner in the hello
-enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10 };
+// Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it. 9 (r13): the items' lines (MsgItems).
+// 10 (r14): the host's time, weather and the scripts' world state (MsgWorld)
+const char* PROTOCOL = "10";
+const char* ENGINE_REVISION = "14"; // coop_engine_version(), told to the partner in the hello
+enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
 const u64 TRAVEL_RECENT_MS = 120000; // a load this soon after the last moment in a game is a travel
@@ -281,6 +283,8 @@ struct Bridge
 	// the host's creatures (coop_creatures): the newest frame that came, for the game's thread
 	std::string creatures_in;
 	bool creatures_new = false;
+	std::string world_in;              // the host's newest time and weather (coop_clock)
+	bool world_new = false;
 	std::deque<std::string> items_in;  // the partner's item moves (coop_items), in order
 	u64 next_creatures = 0;
 
@@ -512,6 +516,10 @@ struct Bridge
 		case MsgItems:
 			items_in.push_back(body);
 			break;
+		case MsgWorld:
+			world_in = body;
+			world_new = true;
+			break;
 		case MsgState:
 			for (auto& line : split(body, '\n'))
 			{
@@ -734,7 +742,7 @@ struct Bridge
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
 		bool host_role, send_creatures = false, link_up, items_linked = false;
-		std::string creatures;
+		std::string creatures, world;
 		std::deque<std::string> items;
 		{
 			std::lock_guard<std::mutex> g(m);
@@ -767,6 +775,11 @@ struct Bridge
 			{
 				creatures_new = false;
 				creatures.swap(creatures_in);
+			}
+			if (world_new)
+			{
+				world_new = false;
+				world.swap(world_in);
 			}
 
 			if (host_role)
@@ -924,7 +937,10 @@ struct Bridge
 		}
 		// a load starts the scripts' id pairs anew
 		if (where != "game" && my_where == "game")
+		{
 			coop_creatures::clear_map();
+			coop_clock::reset();
+		}
 		my_where = where;
 		if (where == "game")
 		{
@@ -945,6 +961,15 @@ struct Bridge
 				std::lock_guard<std::mutex> g(m);
 				queue(MsgCreatures, out);
 			}
+			// the time and weather: the host's go to the guest once a second while both are on one level
+			std::string clock;
+			if (host_role && items_linked && coop_clock::collect(clock, Device.dwTimeGlobal))
+			{
+				std::lock_guard<std::mutex> g(m);
+				queue(MsgWorld, clock);
+			}
+			if (!host_role && !world.empty())
+				coop_clock::apply(world);
 			if (!host_role)
 			{
 				if (!creatures.empty())

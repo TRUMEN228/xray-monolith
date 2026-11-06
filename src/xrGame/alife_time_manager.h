@@ -34,6 +34,8 @@ public:
 	IC float time_factor() const;
 	IC float normal_time_factor() const;
 	IC void change_game_time(u32 value);
+	// co-op (r14): the guest's clock put to the host's, forward or back
+	IC void set_game_time(ALife::_TIME_ID value);
 };
 
 #include "alife_time_manager_inline.h"
