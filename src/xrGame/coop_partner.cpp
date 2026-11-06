@@ -149,6 +149,7 @@ void actor_hit(CEntityAlive* victim, float lost, bool died)
 	if (lost <= 0.0005f && !died)
 		return;
 	hits_out.push_back(std::to_string(coop_creatures::host_id(victim->ID())) + "|" + f4(lost) + "|" + (died ? "1" : "0"));
+	Msg("~ coop hit out: %s (here %u)", hits_out.back().c_str(), victim->ID());
 }
 
 void hits(bool host, bool linked, std::vector<std::string>& out)
@@ -156,7 +157,9 @@ void hits(bool host, bool linked, std::vector<std::string>& out)
 	// (the host's own hits reach the guest with the creatures' health and deaths)
 	if (!host && linked)
 		for (auto& h : hits_out)
-			out.push_back(h);
+			out.push_back("hit|" + h);
+	else if (!hits_out.empty())
+		Msg("~ coop hits not sent: %u (host %d, linked %d)", (u32)hits_out.size(), host ? 1 : 0, linked ? 1 : 0);
 	hits_out.clear();
 }
 
@@ -167,6 +170,7 @@ void hit_in(const std::string& line)
 		return;
 	u16 id = (u16)atoi(a[0].c_str());
 	CEntityAlive* e = smart_cast<CEntityAlive*>(Level().Objects.net_Find(id));
+	Msg("~ coop hit in: %s (%s)", line.c_str(), !e ? "not here" : (e->g_Alive() ? "alive" : "dead"));
 	if (!e || !e->g_Alive())
 		return;
 	float h = e->GetfHealth() - (float)atof(a[1].c_str());

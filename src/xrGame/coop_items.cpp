@@ -357,6 +357,7 @@ void make_gift(const std::string& section, const std::string& state)
 	if (n > 4)
 	{
 		NET_Packet in;
+		in.B.count = 0;
 		in.w(buf, n);
 		in.r_seek(0);
 		u16 state_size = 0;
@@ -403,6 +404,8 @@ bool gift(u16 id)
 	if (!se || !s)
 		return false;
 	NET_Packet state, update, both;
+	// (a packet's write position is not set by its constructor)
+	state.B.count = update.B.count = both.B.count = 0;
 	s->STATE_Write(state);
 	s->UPDATE_Write(update);
 	both.w_u16((u16)state.B.count);

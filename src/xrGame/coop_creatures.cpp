@@ -19,7 +19,9 @@
 #include "Level.h"
 #include "Actor.h"
 #include "CustomMonster.h"
+#include "InventoryOwner.h"
 #include "ai/stalker/ai_stalker.h"
+#include "stalker_movement_manager_smart_cover.h"
 #include "script_game_object.h"
 #include "memory_manager.h"
 #include "enemy_manager.h"
@@ -56,6 +58,8 @@ struct Record
 	u8 rel;        // 0 friend, 1 neutral, 2 enemy (to the host)
 	u16 enemy;     // a creature's host id, HOST, GUEST or NONE
 	u8 flags;      // FLAG_DEAD
+	s16 yaw;       // r16: where it looks (a stalker's head, a monster's body), the engine's angles * 32767 / pi
+	s16 pitch;
 };
 #pragma pack(pop)
 
@@ -141,6 +145,17 @@ void collect(std::string& out, u32 now)
 		r.mental = r.body = r.strap = 255;
 		r.rel = 2;
 		r.enemy = NONE;
+		// where it looks: a stalker's head, a monster's body
+		{
+			float yaw = m->movement().m_body.current.yaw, pitch = 0.f;
+			if (CAI_Stalker* s = smart_cast<CAI_Stalker*>(m))
+			{
+				yaw = s->movement().head_orientation().current.yaw;
+				pitch = s->movement().head_orientation().current.pitch;
+			}
+			r.yaw = (s16)iFloor(angle_normalize_signed(yaw) / PI * 32767.f);
+			r.pitch = (s16)iFloor(angle_normalize_signed(pitch) / PI * 32767.f);
+		}
 		if (!alive)
 		{
 			out.append((const char*)&r, sizeof(r));
@@ -223,6 +238,12 @@ void apply(const std::string& payload)
 		if (!driven)
 			m->net_puppet(true, 0);
 		m->net_puppet_push(pos, stamp);
+		// the host's look (the engine's yaw and pitch are the negated heading and pitch of a direction)
+		{
+			Fvector look;
+			look.setHP(-(r.yaw * PI / 32767.f), -(r.pitch * PI / 32767.f));
+			m->net_puppet_set_look(look);
+		}
 		copies[id] = now;
 		// hurt on the host: hurt here (a health that went up comes with the creature's own healing)
 		float h = r.health / 255.f;
@@ -341,11 +362,21 @@ bool census(std::string& out, u32 now)
 			else
 				sq = NONE;
 		}
+		// the look and the name (a new copy picks its own at random from the section's profile)
+		std::string look = o->cNameVisual().c_str() ? o->cNameVisual().c_str() : "";
+		std::string name;
+		if (CInventoryOwner* io = smart_cast<CInventoryOwner*>(o))
+			name = io->Name() ? io->Name() : "";
+		for (auto* s : {&look, &name})
+			for (char& c : *s)
+				if (c == ':' || c == '|' || c == ';')
+					c = ' ';
 		char e[256];
-		xr_sprintf(e, "|%u:%s:%.1f:%.1f:%.1f:%u:%u:%d:%s:%s:%s", o->ID(), o->cNameSect().c_str(), pos.x, pos.y, pos.z,
+		xr_sprintf(e, "|%u:%s:%.1f:%.1f:%.1f:%u:%u:%d:%s:%s:%s:", o->ID(), o->cNameSect().c_str(), pos.x, pos.y, pos.z,
 			m->ai_location().level_vertex_id(), (u32)m->ai_location().game_vertex_id(), m->g_Alive() ? 1 : 0,
 			sq != NONE ? std::to_string(sq).c_str() : "", sq_sec.c_str(), smart != NONE ? std::to_string(smart).c_str() : "");
 		out += e;
+		out += look + ":" + name;
 	}
 	return true;
 }
