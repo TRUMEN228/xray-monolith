@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "coop_partner.h"
 #include "entity_alive.h"
 #include "inventoryowner.h"
 #include "inventory.h"
@@ -275,6 +276,7 @@ void CEntityAlive::HitImpulse(float /**amount/**/, Fvector& /**vWorldDir/**/, Fv
 void CEntityAlive::Hit(SHit* pHDS)
 {
 	SHit HDS = *pHDS;
+	float coop_before = GetfHealth(); // co-op (r15): what this player's hit took goes to the host
 	//-------------------------------------------------------------------
 	if (HDS.hit_type == ALife::eHitTypeWound_2)
 		HDS.hit_type = ALife::eHitTypeWound;
@@ -301,6 +303,8 @@ void CEntityAlive::Hit(SHit* pHDS)
 	conditions().SetConditionDeltaTime(0);
 	//-------------------------------------------
 	inherited::Hit(&HDS);
+	if (g_actor && HDS.who && HDS.who->ID() == g_actor->ID() && HDS.who != this)
+		coop_partner::actor_hit(this, coop_before - GetfHealth(), GetfHealth() <= 0.f || !g_Alive());
 
 	if (g_Alive() && IsGameTypeSingle())
 	{

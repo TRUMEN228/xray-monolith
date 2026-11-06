@@ -3,6 +3,7 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
+#include "coop_props.h"
 
 #include "explosive.h"
 
@@ -367,6 +368,10 @@ void CExplosive::Explode()
 	}
 #endif
 	
+	// co-op (r15): this player's explosion is seen and heard in the partner's game
+	if (g_actor && Initiator() == g_actor->ID())
+		coop_props::exploded(cast_game_object(), pos);
+
 	// Interactive Grass FX
 	extern Fvector4 ps_ssfx_int_grass_params_2;
 	g_pGamePersistent->GrassBendersAddExplosion(cast_game_object()->ID(), pos, Fvector().set(0, -99, 0), 1.33f, ps_ssfx_int_grass_params_2.y, ps_ssfx_int_grass_params_2.x, m_fBlastRadius * 2.0f);

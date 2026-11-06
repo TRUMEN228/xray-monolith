@@ -29,6 +29,8 @@ public:
 	virtual void shedule_Update(u32 dt);
 	virtual bool CanRemoveObject();
 	virtual void OnChangeVisual();
+	// co-op (r15): the partner broke it in its game
+	void coop_destroy() { if (CanDestroy()) Destroy(); }
 protected:
 	void Destroy();
 private:

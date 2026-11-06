@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "coop_props.h"
 #include "PHCollisionDamageReceiver.h"
 #include "PhysicObject.h"
 #include "hit.h"
@@ -104,6 +105,7 @@ void CDestroyablePhysicsObject::Hit(SHit* pHDS)
 
 void CDestroyablePhysicsObject::Destroy()
 {
+	coop_props::destroyed(this); // co-op (r15): it breaks in the partner's game too
 	setVisible(false);				   
 #ifdef DEBUG
 	VERIFY(!physics_world()->Processing());

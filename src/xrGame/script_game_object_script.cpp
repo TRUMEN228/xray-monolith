@@ -12,6 +12,8 @@
 #include "coop_items.h"
 #include "coop_clock.h"
 #include "coop_news.h"
+#include "coop_partner.h"
+#include "coop_props.h"
 #include "coop_update.h"
 #include "UIGameSP.h"
 #include "ui/UITalkWnd.h"
@@ -60,7 +62,7 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 //     host's box lists and bodies' loot; coop_items_ignore(id, on), coop_items_pause(ms); new items through
 //     coop_world.engine_spawn, open windows shown anew through coop_world.engine_refresh; coop_items_shared(on):
 //     the host's "shared loot" option (off: boxes and bodies are each player's own copy)
-static int coop_engine_version() { return 14; }
+static int coop_engine_version() { return 15; }
 
 // the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
 static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }
@@ -84,6 +86,10 @@ static void coop_items_ignore(int id, bool ignore) { coop_items::ignore_box((u16
 static void coop_items_pause(int ms) { coop_items::pause((u32)_max(ms, 0)); }
 static void coop_items_shared(bool shared) { coop_items::set_shared(shared); }
 static void coop_news_keep(bool on) { coop_news::keep_local(on); }
+static void coop_partner_extras(LPCSTR s) { coop_partner::set_extras(s ? s : ""); }
+static void coop_money_shared(bool on) { coop_props::set_shared_money(on); }
+static void coop_money_give(int n) { coop_props::give_money(n); }
+static void coop_door_scripted(int id) { coop_props::skip_door((u16)id); }
 static int coop_news_count(LPCSTR text) { return coop_news::count(text); }
 static void coop_world_jumped() { coop_clock::weather_jumped(); }
 static void coop_world_state(LPCSTR s) { coop_clock::set_state(s ? s : ""); }
@@ -334,6 +340,10 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_world_jumped", &::coop_world_jumped),
 		def("coop_news_count", &::coop_news_count),
 		def("coop_news_keep", &::coop_news_keep),
+		def("coop_partner_extras", &::coop_partner_extras),
+		def("coop_money_shared", &::coop_money_shared),
+		def("coop_money_give", &::coop_money_give),
+		def("coop_door_scripted", &::coop_door_scripted),
 		def("coop_world_state", &::coop_world_state),
 		def("coop_update_check", &::coop_update_check),
 		def("coop_update_download", &::coop_update_download),

@@ -17,6 +17,8 @@
 #include "coop_items.h"
 #include "coop_clock.h"
 #include "coop_news.h"
+#include "coop_partner.h"
+#include "coop_props.h"
 #include "Level.h"
 #include "Actor.h"
 #include "UIGameCustom.h"
@@ -45,10 +47,11 @@ namespace
 {
 // protocol 8: the session in the engine (presence frames; the world and reloads no longer pass the scripts).
 // Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it. 9 (r13): the items' lines (MsgItems).
-// 10 (r14): the host's time, weather and the scripts' world state (MsgWorld), the PDA's messages (MsgNews)
-const char* PROTOCOL = "10";
-const char* ENGINE_REVISION = "14"; // coop_engine_version(), told to the partner in the hello
-enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11, MsgNews = 12 };
+// 10 (r14): the host's time, weather and the scripts' world state (MsgWorld), the PDA's messages (MsgNews).
+// 11 (r15): where each player is (MsgPartner), money, hits and the world's physical things (MsgProps)
+const char* PROTOCOL = "11";
+const char* ENGINE_REVISION = "15"; // coop_engine_version(), told to the partner in the hello
+enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11, MsgNews = 12, MsgPartner = 13, MsgProps = 14 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
 const u64 TRAVEL_RECENT_MS = 120000; // a load this soon after the last moment in a game is a travel
@@ -286,6 +289,9 @@ struct Bridge
 	bool creatures_new = false;
 	std::string world_in;              // the host's newest time and weather (coop_clock)
 	std::deque<std::string> news_in;   // the partner's PDA messages (coop_news)
+	std::string partner_in;            // where the partner is, newest (coop_partner)
+	bool partner_new = false;
+	std::deque<std::string> props_in;  // money, hits, doors, breaks, explosions (coop_props)
 	bool world_new = false;
 	std::deque<std::string> items_in;  // the partner's item moves (coop_items), in order
 	u64 next_creatures = 0;
@@ -525,6 +531,13 @@ struct Bridge
 		case MsgNews:
 			news_in.push_back(body);
 			break;
+		case MsgPartner:
+			partner_in = body;
+			partner_new = true;
+			break;
+		case MsgProps:
+			props_in.push_back(body);
+			break;
 		case MsgState:
 			for (auto& line : split(body, '\n'))
 			{
@@ -747,8 +760,8 @@ struct Bridge
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
 		bool host_role, send_creatures = false, link_up, items_linked = false, news_linked = false;
-		std::string creatures, world;
-		std::deque<std::string> items, news;
+		std::string creatures, world, partner;
+		std::deque<std::string> items, news, props;
 		{
 			std::lock_guard<std::mutex> g(m);
 			host_role = role == "host";
@@ -779,6 +792,12 @@ struct Bridge
 			// the PDA's messages: while both are in a game (on any level)
 			news_linked = connected && where == "game" && theirs.where == "game";
 			news.swap(news_in);
+			props.swap(props_in);
+			if (partner_new)
+			{
+				partner_new = false;
+				partner.swap(partner_in);
+			}
 			if (creatures_new)
 			{
 				creatures_new = false;
@@ -969,6 +988,26 @@ struct Bridge
 				std::lock_guard<std::mutex> g(m);
 				queue(MsgCreatures, out);
 			}
+			// where each player is: both ways while both are in a game; the partner's puppet moves at once
+			std::string here;
+			if (news_linked && coop_partner::collect(here, Device.dwTimeGlobal))
+			{
+				std::lock_guard<std::mutex> g(m);
+				queue(MsgPartner, here);
+			}
+			if (!partner.empty())
+				coop_partner::apply(partner);
+			// money, hits and the world's physical things
+			for (auto& line : props)
+				coop_props::receive(host_role, line);
+			std::vector<std::string> changes;
+			coop_props::frame(host_role, items_linked, news_linked, changes);
+			if (!changes.empty())
+			{
+				std::lock_guard<std::mutex> g(m);
+				for (auto& line : changes)
+					queue(MsgProps, line);
+			}
 			for (auto& line : news)
 				coop_news::receive(line);
 			std::vector<std::string> said;
@@ -1060,6 +1099,9 @@ struct Bridge
 		world_sent = false;
 		items_in.clear();
 		news_in.clear();
+		props_in.clear();
+		partner_in.clear();
+		partner_new = false;
 		coop_items::set_note([this](const std::string& s)
 		{
 			std::lock_guard<std::mutex> g(m);
