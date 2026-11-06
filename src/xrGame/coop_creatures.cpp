@@ -293,6 +293,7 @@ u16 host_id(u16 id)
 	return it == g2h.end() ? id : it->second;
 }
 void set_partner(u16 id) { partner = id; }
+u16 partner_id() { return partner; }
 
 u16 target_of(u16 id)
 {

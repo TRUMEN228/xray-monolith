@@ -378,13 +378,30 @@ void launch(u32 now)
 		CPhysicsShellHolder* h = smart_cast<CPhysicsShellHolder*>(found);
 		if (h && h->PPhysicsShell())
 		{
-			h->PPhysicsShell()->set_LinearVel(it->velocity);
+			CPhysicsShell* shell = h->PPhysicsShell();
+			// as the thrower's own throw (CMissile::activate_physic_shell): no air drag, and the thrower - here the
+			// partner's puppet, whose head the copy starts in - is not hit until the copy is out of it
+			shell->SetAllGeomTraced();
+			shell->SetAirResistance(0.f, 0.f);
+			shell->set_DynamicScales(1.f, 1.f);
+			CObject* thrower = coop_creatures::partner_id() != u16(-1) ?
+				Level().Objects.net_Find(coop_creatures::partner_id()) : nullptr;
+			if (smart_cast<CPhysicsShellHolder*>(thrower))
+			{
+				shell->add_ObjectContactCallback(CMissile::ExitContactCallback);
+				shell->set_CallbackData(smart_cast<CPhysicsShellHolder*>(thrower));
+			}
+			shell->set_LinearVel(it->velocity);
+			trace("~", "launched " + it->section, "");
 			if (smart_cast<CGrenade*>(found))
 				grenades[found->ID()] = now + GRENADE_LIFE_MS;
 			it = throws.erase(it);
 		}
 		else if (now - it->at > THROW_WAIT_MS)
+		{
+			trace("~", "no copy of a throw: " + it->section);
 			it = throws.erase(it);
+		}
 		else
 			++it;
 	}
