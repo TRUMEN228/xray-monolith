@@ -40,4 +40,10 @@ void pause(u32 ms);
 bool gift(u16 id);
 // r17 (host): a new item of the world for the guest as its whole state; kind: art, ground or box
 bool world_item(u16 id, LPCSTR kind);
+// r18: the same line for coop_props (empty: no such item), an item's whole state as hex, a trader's copy of an
+// item from its whole state, and whether this module is making something now
+std::string world_line(u16 id, LPCSTR kind);
+std::string item_state(u16 id);
+void trader_copy(u16 trader, const std::string& section, const std::string& state);
+bool busy();
 } // namespace coop_items

@@ -10,6 +10,11 @@
 #include "coop_creatures.h"
 #include "coop_partner.h"
 #include "CustomMonster.h"
+#include "coop_items.h"
+#include "alife_simulator.h"
+#include "alife_object_registry.h"
+#include "../xrServerEntities/xrServer_Objects_ALife_Monsters.h"
+#include "../xrServerEntities/xrServer_Objects_ALife_Items.h"
 #include "Level.h"
 #include "Actor.h"
 #include "PhysicObject.h"
@@ -45,6 +50,108 @@ u32 next_door_scan = 0;
 bool applying = false;
 bool friendly_fire = false;
 bool is_host = false;
+bool spawns_armed = false;
+bool info_ready = false;
+std::map<u16, u32> fresh;            // host: newly registered objects -> the frame they came (looked at a frame later)
+std::map<std::string, u32> info_count; // a flag's changes sent this minute (flags that flicker are not synced)
+u32 info_reset = 0;
+bool quiet_now()
+{
+	// the scripts' own copies of the partner's things (a drop, a gift, a stash) are no new spawns
+	if (coop_items::busy())
+		return true;
+	try
+	{
+		luabind::functor<bool> f;
+		if (ai().script_engine().functor("coop_spawn.engine_quiet", f))
+			return f();
+	}
+	catch (...)
+	{
+	}
+	return false;
+}
+
+std::string esc(const char* s)
+{
+	std::string r;
+	for (; s && *s; s++)
+	{
+		if (*s == '\\') r += "\\\\";
+		else if (*s == '|') r += "\\p";
+		else if (*s == '\n') r += "\\n";
+		else if (*s == '\t') r += "\\t";
+		else if (*s != '\r') r += *s;
+	}
+	return r;
+}
+
+std::string unesc(const std::string& s)
+{
+	std::string r;
+	for (size_t i = 0; i < s.size(); i++)
+	{
+		if (s[i] == '\\' && i + 1 < s.size())
+		{
+			char c = s[++i];
+			r += c == 'p' ? '|' : (c == 'n' ? '\n' : (c == 't' ? '\t' : c));
+		}
+		else
+			r += s[i];
+	}
+	return r;
+}
+
+bool removable(CSE_ALifeDynamicObject* o)
+{
+	return smart_cast<CSE_ALifeOnlineOfflineGroup*>(o) || smart_cast<CSE_ALifeMonsterAbstract*>(o) ||
+		smart_cast<CSE_ALifeItemArtefact*>(o);
+}
+
+// a new object a frame after it came: an artefact, a thing on the ground or in a box, a squad member
+void spawns_frame()
+{
+	if (fresh.empty())
+		return;
+	for (auto it = fresh.begin(); it != fresh.end();)
+	{
+		if (Device.dwFrame - it->second < 2)
+		{
+			++it;
+			continue;
+		}
+		u16 id = it->first;
+		it = fresh.erase(it);
+		CSE_ALifeDynamicObject* se = ai().alife().objects().object(id, true);
+		if (!se)
+			continue;
+		CSE_ALifeDynamicObject* parent = se->ID_Parent != u16(-1) ? ai().alife().objects().object(se->ID_Parent, true) : nullptr;
+		if (CSE_ALifeMonsterAbstract* m = smart_cast<CSE_ALifeMonsterAbstract*>(se))
+		{
+			CSE_Abstract* squad = m->m_group_id != u16(-1) ? ai().alife().objects().object(m->m_group_id, true) : nullptr;
+			if (!squad)
+				continue; // (one without a squad is the mirror's to bring)
+			char l[320];
+			xr_sprintf(l, "sqm|%u|%s|%u|%s|%.2f|%.2f|%.2f|%u|%u|%s", squad->ID, squad->name(), id, se->name(), se->o_Position.x,
+				se->o_Position.y, se->o_Position.z, se->m_tNodeID, (u32)se->m_tGraphID,
+				m->m_smart_terrain_id != u16(-1) ? std::to_string(m->m_smart_terrain_id).c_str() : "");
+			outgoing.push_back(l);
+			continue;
+		}
+		if (smart_cast<CSE_ALifeInventoryBox*>(se) || !smart_cast<CSE_ALifeInventoryItem*>(se))
+			continue;
+		LPCSTR kind = nullptr;
+		if (!parent)
+			kind = smart_cast<CSE_ALifeItemArtefact*>(se) ? "art" : (pSettings->line_exist(se->name(), "inv_weight") ? "ground" : nullptr);
+		else if (smart_cast<CSE_ALifeInventoryBox*>(parent))
+			kind = "box";
+		if (!kind)
+			continue;
+		std::string l = coop_items::world_line(id, kind);
+		if (!l.empty())
+			outgoing.push_back(l);
+	}
+}
 
 std::string f3(float v)
 {
@@ -173,6 +280,70 @@ void doors_frame(bool same_level, u32 now)
 } // namespace
 
 void set_shared_money(bool on) { shared_money = on; }
+void set_spawns_armed(bool on) { spawns_armed = on; }
+void set_info_ready(bool on) { info_ready = on; }
+
+void registered(CSE_ALifeDynamicObject* o)
+{
+	if (!o || !is_host || !spawns_armed || !g_pGameLevel || o->ID == (g_actor ? g_actor->ID() : u16(-1)) || quiet_now())
+		return;
+	fresh[o->ID] = Device.dwFrame;
+}
+
+void unregistered(CSE_ALifeDynamicObject* o)
+{
+	if (!o || !is_host || !spawns_armed || !g_pGameLevel || !removable(o) || quiet_now())
+		return;
+	fresh.erase(o->ID);
+	outgoing.push_back("unreg|" + std::to_string(o->ID) + "|" + o->name());
+}
+
+void info_changed(LPCSTR info, bool on)
+{
+	if (applying || !info_ready || !info || !*info || !g_actor)
+		return;
+	if (Device.dwTimeGlobal > info_reset)
+	{
+		info_count.clear();
+		info_reset = Device.dwTimeGlobal + 60000;
+	}
+	if (++info_count[info] <= 3)
+		outgoing.push_back(std::string("info|") + info + "|" + (on ? "1" : "0"));
+}
+
+void traded(u16 trader, u16 item, LPCSTR section, bool bought)
+{
+	if (applying || !section)
+		return;
+	std::string th = std::to_string(coop_creatures::host_id(trader));
+	if (bought)
+		outgoing.push_back("tbuy|" + th + "|" + section);
+	else
+	{
+		std::string st = coop_items::item_state(item);
+		if (!st.empty())
+			outgoing.push_back("tsell|" + th + "|" + section + "|" + st);
+	}
+}
+
+void talk_line(LPCSTR speaker, LPCSTR text, LPCSTR other)
+{
+	if (!g_actor || !text || !*text)
+		return;
+	outgoing.push_back("dlg|" + esc(g_actor->Name()) + "|" + esc(speaker) + "|" + esc(text) + "|" + esc(other));
+}
+
+void talk_options(LPCSTR other, LPCSTR list, u16 npc)
+{
+	if (!g_actor)
+		return;
+	outgoing.push_back("dlgopts|" + esc(g_actor->Name()) + "|" + esc(other) + "|" +
+		(npc != u16(-1) ? std::to_string(coop_creatures::host_id(npc)) : std::string("")) + "|" + esc(list));
+}
+
+void talk_pick(LPCSTR id) { outgoing.push_back(std::string("dlgpick|") + esc(id)); }
+void talk_switch(LPCSTR kind) { outgoing.push_back(std::string("dlgswitch|") + esc(kind)); }
+void talk_end() { outgoing.push_back("dlgend"); }
 void set_friendly_fire(bool on) { friendly_fire = on; }
 
 void creature_hit(const SHit* h, CObject* puppet, CObject* who)
@@ -238,6 +409,10 @@ void frame(bool host, bool same_level, bool in_game, std::vector<std::string>& o
 		return;
 	}
 	is_host = host;
+	if (host)
+		spawns_frame();
+	else
+		fresh.clear();
 	money_frame(host, in_game);
 	doors_frame(same_level, Device.dwTimeGlobal);
 	coop_partner::hits(host, same_level, out);
@@ -261,7 +436,55 @@ void receive(bool host, const std::string& line)
 		return;
 	auto a = split(line, '|');
 	const std::string& kind = a[0];
-	if (kind == "census")
+	if (kind == "spawn")
+	{
+		if (!host)
+			coop_items::receive(host, line);
+	}
+	else if (kind == "sqm" && a.size() >= 11)
+	{
+		if (!host)
+			call("coop_spawn.engine_sqm", atoi(a[1].c_str()), a[2].c_str(), atoi(a[3].c_str()), a[4].c_str(),
+				(float)atof(a[5].c_str()), (float)atof(a[6].c_str()), (float)atof(a[7].c_str()), (int)strtoul(a[8].c_str(), nullptr, 10),
+				(int)strtoul(a[9].c_str(), nullptr, 10), a[10].empty() ? -1 : atoi(a[10].c_str()));
+	}
+	else if (kind == "unreg" && a.size() >= 3)
+	{
+		if (!host)
+			call("coop_spawn.engine_unreg", atoi(a[1].c_str()), a[2].c_str());
+	}
+	else if (kind == "info" && a.size() >= 3)
+	{
+		// the partner's story flag: this player's too
+		shared_str id = a[1].c_str();
+		bool on = a[2] == "1";
+		if (id.size() && on != !!g_actor->HasInfo(id))
+		{
+			applying = true;
+			g_actor->TransferInfo(id, on);
+			applying = false;
+		}
+	}
+	else if (kind == "tbuy" && a.size() >= 3)
+		call("coop_objects.engine_tbuy", (int)coop_creatures::local_id_of((u16)atoi(a[1].c_str())), a[2].c_str());
+	else if (kind == "tsell" && a.size() >= 4)
+	{
+		applying = true;
+		coop_items::trader_copy(coop_creatures::local_id_of((u16)atoi(a[1].c_str())), a[2], a[3]);
+		applying = false;
+	}
+	else if (kind == "dlg" && a.size() >= 5)
+		call("coop_dialog.engine_line", unesc(a[1]).c_str(), unesc(a[2]).c_str(), unesc(a[3]).c_str(), unesc(a[4]).c_str());
+	else if (kind == "dlgopts" && a.size() >= 5)
+		call("coop_dialog.engine_options", unesc(a[1]).c_str(), unesc(a[2]).c_str(),
+			a[3].empty() ? -1 : (int)coop_creatures::local_id_of((u16)atoi(a[3].c_str())), unesc(a[4]).c_str());
+	else if (kind == "dlgpick" && a.size() >= 2)
+		call("coop_dialog.engine_pick", unesc(a[1]).c_str());
+	else if (kind == "dlgswitch" && a.size() >= 2)
+		call("coop_dialog.engine_switch", unesc(a[1]).c_str());
+	else if (kind == "dlgend")
+		call("coop_dialog.engine_end");
+	else if (kind == "census")
 	{
 		// the host's creatures for the guest's mirror
 		if (!host)

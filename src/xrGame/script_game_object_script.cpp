@@ -62,7 +62,7 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 //     host's box lists and bodies' loot; coop_items_ignore(id, on), coop_items_pause(ms); new items through
 //     coop_world.engine_spawn, open windows shown anew through coop_world.engine_refresh; coop_items_shared(on):
 //     the host's "shared loot" option (off: boxes and bodies are each player's own copy)
-static int coop_engine_version() { return 17; }
+static int coop_engine_version() { return 18; }
 
 // the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
 static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }
@@ -93,6 +93,11 @@ static void coop_door_scripted(int id) { coop_props::skip_door((u16)id); }
 static void coop_friendly_fire(bool on) { coop_props::set_friendly_fire(on); }
 static bool coop_items_gift(int id) { return coop_items::gift((u16)id); }
 static bool coop_spawn_item(int id, LPCSTR kind) { return coop_items::world_item((u16)id, kind); }
+static void coop_spawn_arm(bool on) { coop_props::set_spawns_armed(on); }
+static void coop_info_ready(bool on) { coop_props::set_info_ready(on); }
+static void coop_talk_end() { coop_props::talk_end(); }
+// the tests: a deal as CTrade::TransferItem tells it (a script cannot trade)
+static void coop_test_traded(int trader, int item, LPCSTR section, bool bought) { coop_props::traded((u16)trader, (u16)item, section, bought); }
 static int coop_news_count(LPCSTR text) { return coop_news::count(text); }
 static void coop_world_jumped() { coop_clock::weather_jumped(); }
 static void coop_world_state(LPCSTR s) { coop_clock::set_state(s ? s : ""); }
@@ -350,6 +355,10 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_friendly_fire", &::coop_friendly_fire),
 		def("coop_items_gift", &::coop_items_gift),
 		def("coop_spawn_item", &::coop_spawn_item),
+		def("coop_spawn_arm", &::coop_spawn_arm),
+		def("coop_info_ready", &::coop_info_ready),
+		def("coop_talk_end", &::coop_talk_end),
+		def("coop_test_traded", &::coop_test_traded),
 		def("coop_world_state", &::coop_world_state),
 		def("coop_update_check", &::coop_update_check),
 		def("coop_update_download", &::coop_update_download),

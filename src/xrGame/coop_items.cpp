@@ -471,19 +471,47 @@ bool gift(u16 id)
 
 // r17: the host's new item (an artefact, a thing on the ground or in a box) goes to the guest as its whole state;
 // the guest's game makes the same there and pairs the ids (coop_spawn.engine_spawned)
-bool world_item(u16 id, LPCSTR kind)
+std::string world_line(u16 id, LPCSTR kind)
 {
 	if (!ai().get_alife() || !kind)
-		return false;
+		return "";
 	CSE_ALifeDynamicObject* se = ai().alife().objects().object(id, true);
 	std::string st = se ? state_hex(se) : "";
 	if (st.empty())
-		return false;
+		return "";
 	char head[256];
 	xr_sprintf(head, "spawn|%u|%s|%u|%s|%.3f|%.3f|%.3f|%u|%u|", id, kind, se->ID_Parent, se->name(), se->o_Position.x,
 		se->o_Position.y, se->o_Position.z, se->m_tNodeID, (u32)se->m_tGraphID);
-	outgoing.push_back(head + st);
+	return head + st;
+}
+
+bool world_item(u16 id, LPCSTR kind)
+{
+	std::string l = world_line(id, kind);
+	if (l.empty())
+		return false;
+	outgoing.push_back(l);
 	return true;
+}
+
+bool busy() { return applying; }
+
+// r18: a trader's copy of what the partner sold it there (its whole state)
+void trader_copy(u16 trader, const std::string& section, const std::string& state)
+{
+	CObject* t = Level().Objects.net_Find(trader);
+	CGameObject* go = smart_cast<CGameObject*>(t);
+	if (!go)
+		return;
+	make_copy(section, state, trader, t->Position(), go->ai_location().level_vertex_id(), go->ai_location().game_vertex_id());
+}
+
+std::string item_state(u16 id)
+{
+	if (!ai().get_alife())
+		return "";
+	CSE_Abstract* se = ai().alife().objects().object(id, true);
+	return se ? state_hex(se) : "";
 }
 void set_shared(bool on) { shared = on; }
 

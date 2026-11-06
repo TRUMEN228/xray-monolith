@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
+#include "coop_props.h"
 #include "alife_simulator_base.h"
 #include "relation_registry.h"
 #include "alife_registry_wrappers.h"
@@ -34,6 +35,7 @@ void CALifeSimulatorBase::register_object(CSE_ALifeDynamicObject* object, bool a
 	groups().add(object);
 
 	setup_simulator(object);
+	coop_props::registered(object); // co-op (r18): the host's new things go to the guest
 
 	CSE_ALifeInventoryItem* item = smart_cast<CSE_ALifeInventoryItem*>(object);
 	if (item && item->attached())
@@ -57,6 +59,7 @@ void CALifeSimulatorBase::register_object(CSE_ALifeDynamicObject* object, bool a
 
 void CALifeSimulatorBase::unregister_object(CSE_ALifeDynamicObject* object, bool alife_query)
 {
+	coop_props::unregistered(object); // co-op (r18): gone at the guest's too
 	object->on_unregister();
 
 	CSE_ALifeInventoryItem* item = smart_cast<CSE_ALifeInventoryItem*>(object);

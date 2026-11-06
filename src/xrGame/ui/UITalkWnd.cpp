@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "pch_script.h"
+#include "coop_props.h"
 #include "UITalkWnd.h"
 #include "../../xrServerEntities/script_engine.h"
 #include "../ai_space.h"
@@ -169,7 +170,9 @@ void CUITalkWnd::UpdateQuestions()
 	}
 	m_bNeedToUpdateQuestions = false;
 
-	// Anomaly Co-op: the partner's copy of this window offers the same answers
+	// Anomaly Co-op: the partner's copy of this window offers the same answers (r18: sent by the engine)
+	coop_props::talk_options(m_pOthersInvOwner ? m_pOthersInvOwner->Name() : "", m_coop_options_text.c_str(),
+		m_pOthersInvOwner ? m_pOthersInvOwner->object_id() : u16(-1));
 	::luabind::functor<void> options;
 	if (ai().script_engine().functor("coop_dialog.on_options", options))
 	{
@@ -397,6 +400,7 @@ void CUITalkWnd::AskQuestion()
 	if (m_coop_mirror)
 	{
 		coop_notify("coop_dialog.on_mirror_pick", UITalkDialogWnd->m_ClickedQuestionID.c_str());
+		coop_props::talk_pick(UITalkDialogWnd->m_ClickedQuestionID.c_str());
 		// one choice per set of answers: the next set comes with the talk's next step
 		m_coop_mirror_options.clear();
 		NeedUpdateQuestions();
@@ -460,7 +464,8 @@ void CUITalkWnd::AddAnswer(const shared_str& text, LPCSTR SpeakerName)
 	bool i_am = (0 == xr_strcmp(SpeakerName, m_pOurInvOwner->Name()));
 	UITalkDialogWnd->AddAnswer(SpeakerName, *CStringTable().translate(text), i_am);
 
-	// Anomaly Co-op: the partner sees the same conversation as it goes
+	// Anomaly Co-op: the partner sees the same conversation as it goes (r18: sent by the engine)
+	coop_props::talk_line(SpeakerName, *CStringTable().translate(text), m_pOthersInvOwner ? m_pOthersInvOwner->Name() : "");
 	::luabind::functor<void> line;
 	if (ai().script_engine().functor("coop_dialog.on_line", line))
 	{
@@ -474,6 +479,7 @@ void CUITalkWnd::SwitchToTrade()
 	if (m_coop_picking)
 	{
 		coop_notify("coop_dialog.on_partner_switch", "trade");
+		coop_props::talk_switch("trade");
 		return;
 	}
 	if (m_coop_mirror)
@@ -497,6 +503,7 @@ void CUITalkWnd::SwitchToUpgrade()
 	if (m_coop_picking)
 	{
 		coop_notify("coop_dialog.on_partner_switch", "upgrade");
+		coop_props::talk_switch("upgrade");
 		return;
 	}
 	if (m_coop_mirror)

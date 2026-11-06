@@ -15,6 +15,7 @@
 class CObject;
 struct SHit;
 class CDestroyablePhysicsObject;
+class CSE_ALifeDynamicObject;
 
 namespace coop_props
 {
@@ -36,4 +37,20 @@ void friendly(const SHit* hit, CObject* puppet);
 void set_friendly_fire(bool on);
 // r17 (host): a creature hit the guest's puppet - the hit goes to the guest's game as it is
 void creature_hit(const SHit* hit, CObject* puppet, CObject* who);
+
+// r18: the simulation's registry (host): what comes and goes in the world
+void registered(CSE_ALifeDynamicObject* object);
+void unregistered(CSE_ALifeDynamicObject* object);
+void set_spawns_armed(bool on);
+// r18: this player's story flags (the scripts say when the world is ready for them)
+void info_changed(LPCSTR info, bool on);
+void set_info_ready(bool on);
+// r18: this player traded with an NPC: bought (the item leaves the partner's trader) or sold (the partner's gets it)
+void traded(u16 trader, u16 item, LPCSTR section, bool bought);
+// r18: the talk with an NPC: lines and answers of the starter, the partner's choice, switches and the end
+void talk_line(LPCSTR speaker, LPCSTR text, LPCSTR other);
+void talk_options(LPCSTR other, LPCSTR list, u16 npc);
+void talk_pick(LPCSTR id);
+void talk_switch(LPCSTR kind);
+void talk_end();
 } // namespace coop_props

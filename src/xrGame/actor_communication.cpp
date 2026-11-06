@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "coop_props.h"
 #include "actor.h"
 #include "UIGameSP.h"
 #include "PDA.h"
@@ -52,6 +53,8 @@ bool CActor::OnReceiveInfo(shared_str info_id) const
 {
 	if (!CInventoryOwner::OnReceiveInfo(info_id))
 		return false;
+	if (this == g_actor)
+		coop_props::info_changed(info_id.c_str(), true); // co-op (r18): the partner gets it too
 
 	CInfoPortion info_portion;
 	info_portion.Load(info_id);
@@ -77,6 +80,8 @@ bool CActor::OnReceiveInfo(shared_str info_id) const
 void CActor::OnDisableInfo(shared_str info_id) const
 {
 	CInventoryOwner::OnDisableInfo(info_id);
+	if (this == g_actor)
+		coop_props::info_changed(info_id.c_str(), false); // co-op (r18): the partner's flag goes too
 
 	if (!CurrentGameUI())
 		return;

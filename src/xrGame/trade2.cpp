@@ -1,4 +1,6 @@
 #include "pch_script.h"
+#include "coop_props.h"
+#include "Actor.h"
 #include "trade.h"
 #include "actor.h"
 #include "ai/stalker/ai_stalker.h"
@@ -66,6 +68,14 @@ void CTrade::TransferItem(CInventoryItem* pItem, bool bBuying, bool bFree)
 	// сумма сделки учитывая ценовой коэффициент
 	// актер цену не говорит никогда, все делают за него
 	u32 dwTransferMoney = GetItemPrice(pItem, bBuying, bFree);
+
+	// co-op (r18): this player's deal with a trader is done with the partner's trader too
+	{
+		CGameObject* me = smart_cast<CGameObject*>(pThis.inv_owner);
+		CGameObject* other = smart_cast<CGameObject*>(pPartner.inv_owner);
+		if (g_actor && me && other && me->ID() == g_actor->ID())
+			coop_props::traded(other->ID(), pItem->object().ID(), pItem->object().cNameSect().c_str(), bBuying);
+	}
 
 	if (bBuying)
 	{
