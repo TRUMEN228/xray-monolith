@@ -350,7 +350,10 @@ void make_gift(const std::string& section, const std::string& state)
 	GameGraph::_GRAPH_ID gv = g_actor->ai_location().game_vertex_id();
 	CSE_Abstract* item = sim.spawn_item(section.c_str(), p, lv, gv, g_actor->ID(), false);
 	if (!item)
+	{
+		trace("~", "gift " + section + " not spawned");
 		return;
+	}
 	static u8 buf[NET_PacketSizeLimit];
 	u32 n = unhex(state, buf, sizeof(buf));
 	u16 id = item->ID;
@@ -390,8 +393,9 @@ void make_gift(const std::string& section, const std::string& state)
 	u16 dummy;
 	packet.r_begin(dummy);
 	applying = true;
-	sim.server().Process_spawn(packet, client);
+	CSE_Abstract* made = sim.server().Process_spawn(packet, client);
 	applying = false;
+	trace("~", "gift " + section + (made ? " made id " + std::to_string(made->ID) + " parent " + std::to_string(made->ID_Parent) : " not made") + " state bytes " + std::to_string(n));
 }
 } // namespace
 
