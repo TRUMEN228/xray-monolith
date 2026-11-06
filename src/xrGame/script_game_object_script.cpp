@@ -11,6 +11,7 @@
 #include "coop_creatures.h"
 #include "coop_items.h"
 #include "coop_clock.h"
+#include "coop_news.h"
 #include "coop_update.h"
 #include "UIGameSP.h"
 #include "ui/UITalkWnd.h"
@@ -82,6 +83,8 @@ static int coop_net_target(int id) { return coop_creatures::target_of((u16)id); 
 static void coop_items_ignore(int id, bool ignore) { coop_items::ignore_box((u16)id, ignore); }
 static void coop_items_pause(int ms) { coop_items::pause((u32)_max(ms, 0)); }
 static void coop_items_shared(bool shared) { coop_items::set_shared(shared); }
+static void coop_news_keep(bool on) { coop_news::keep_local(on); }
+static int coop_news_count(LPCSTR text) { return coop_news::count(text); }
 static void coop_world_jumped() { coop_clock::weather_jumped(); }
 static void coop_world_state(LPCSTR s) { coop_clock::set_state(s ? s : ""); }
 static void coop_update_check(LPCSTR current) { coop_update::check(current); }
@@ -329,6 +332,8 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_items_pause", &::coop_items_pause),
 		def("coop_items_shared", &::coop_items_shared),
 		def("coop_world_jumped", &::coop_world_jumped),
+		def("coop_news_count", &::coop_news_count),
+		def("coop_news_keep", &::coop_news_keep),
 		def("coop_world_state", &::coop_world_state),
 		def("coop_update_check", &::coop_update_check),
 		def("coop_update_download", &::coop_update_download),

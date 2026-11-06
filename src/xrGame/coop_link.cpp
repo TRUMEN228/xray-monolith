@@ -16,6 +16,7 @@
 #include "coop_creatures.h"
 #include "coop_items.h"
 #include "coop_clock.h"
+#include "coop_news.h"
 #include "Level.h"
 #include "Actor.h"
 #include "UIGameCustom.h"
@@ -44,10 +45,10 @@ namespace
 {
 // protocol 8: the session in the engine (presence frames; the world and reloads no longer pass the scripts).
 // Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it. 9 (r13): the items' lines (MsgItems).
-// 10 (r14): the host's time, weather and the scripts' world state (MsgWorld)
+// 10 (r14): the host's time, weather and the scripts' world state (MsgWorld), the PDA's messages (MsgNews)
 const char* PROTOCOL = "10";
 const char* ENGINE_REVISION = "14"; // coop_engine_version(), told to the partner in the hello
-enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11 };
+enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11, MsgNews = 12 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
 const u64 TRAVEL_RECENT_MS = 120000; // a load this soon after the last moment in a game is a travel
@@ -284,6 +285,7 @@ struct Bridge
 	std::string creatures_in;
 	bool creatures_new = false;
 	std::string world_in;              // the host's newest time and weather (coop_clock)
+	std::deque<std::string> news_in;   // the partner's PDA messages (coop_news)
 	bool world_new = false;
 	std::deque<std::string> items_in;  // the partner's item moves (coop_items), in order
 	u64 next_creatures = 0;
@@ -520,6 +522,9 @@ struct Bridge
 			world_in = body;
 			world_new = true;
 			break;
+		case MsgNews:
+			news_in.push_back(body);
+			break;
 		case MsgState:
 			for (auto& line : split(body, '\n'))
 			{
@@ -741,9 +746,9 @@ struct Bridge
 		std::vector<std::string> cmds;
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
-		bool host_role, send_creatures = false, link_up, items_linked = false;
+		bool host_role, send_creatures = false, link_up, items_linked = false, news_linked = false;
 		std::string creatures, world;
-		std::deque<std::string> items;
+		std::deque<std::string> items, news;
 		{
 			std::lock_guard<std::mutex> g(m);
 			host_role = role == "host";
@@ -771,6 +776,9 @@ struct Bridge
 			// the items: while both are in a game on one level
 			items_linked = connected && where == "game" && theirs.where == "game" && theirs.level == level;
 			items.swap(items_in);
+			// the PDA's messages: while both are in a game (on any level)
+			news_linked = connected && where == "game" && theirs.where == "game";
+			news.swap(news_in);
 			if (creatures_new)
 			{
 				creatures_new = false;
@@ -961,6 +969,16 @@ struct Bridge
 				std::lock_guard<std::mutex> g(m);
 				queue(MsgCreatures, out);
 			}
+			for (auto& line : news)
+				coop_news::receive(line);
+			std::vector<std::string> said;
+			coop_news::frame(news_linked, said);
+			if (!said.empty())
+			{
+				std::lock_guard<std::mutex> g(m);
+				for (auto& line : said)
+					queue(MsgNews, line);
+			}
 			// the time and weather: the host's go to the guest once a second while both are on one level
 			std::string clock;
 			if (host_role && items_linked && coop_clock::collect(clock, Device.dwTimeGlobal))
@@ -1041,6 +1059,7 @@ struct Bridge
 		sent_presence.clear();
 		world_sent = false;
 		items_in.clear();
+		news_in.clear();
 		coop_items::set_note([this](const std::string& s)
 		{
 			std::lock_guard<std::mutex> g(m);

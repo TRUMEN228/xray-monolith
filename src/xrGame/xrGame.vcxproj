@@ -1023,6 +1023,7 @@
     <ClInclude Include="coop_creatures.h" />
     <ClInclude Include="coop_items.h" />
     <ClInclude Include="coop_clock.h" />
+    <ClInclude Include="coop_news.h" />
     <ClInclude Include="coop_link.h" />
     <ClInclude Include="coop_link_net.h" />
     <ClInclude Include="coop_update.h" />
@@ -2733,6 +2734,10 @@
       <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>
     </ClCompile>
     <ClCompile Include="coop_clock.cpp">
+      <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <ClCompile Include="coop_news.cpp">
       <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>
     </ClCompile>

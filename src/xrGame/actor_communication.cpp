@@ -30,9 +30,13 @@
 #include "ai/monsters/basemonster/base_monster.h"
 #include "ai/trader/ai_trader.h"
 #include "Flashlight.h"
+#include "coop_news.h"
 
 void CActor::AddGameNews(GAME_NEWS_DATA& news_data)
 {
+	// co-op (r14): the message goes to the partner's PDA too; the partner's same one just shown is not shown twice
+	if (this == g_actor && !coop_news::local(news_data))
+		return;
 	GAME_NEWS_VECTOR& news_vector = game_news_registry->registry().objects();
 	news_data.receive_time = Level().GetGameTime();
 	news_vector.push_back(news_data);
