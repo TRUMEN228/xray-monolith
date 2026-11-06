@@ -10,7 +10,10 @@
 //	                bcond|item|section|cond           host: the state of what the guest took (each game rolls loot)
 //	                bdeny|item|section                host: both took the same thing at once, the guest gives it up
 //	                loot|body|section|sec:cond:ammo;... host: a body's things (each game rolls its own)
-//	                throw|section|x|y|z|vx|vy|vz     a bolt or a grenade thrown: the partner's copy flies the same way
+//	                throw|section|x|y|z|vx|vy|vz|n   a bolt or a grenade thrown: the partner's copy flies the same way
+//	                land|n|x|y|z                     the thrower's bolt came to rest there: the copy is put there too
+//	                                                 (the flights part after a hit: the partner's puppet is not where
+//	                                                 the partner is, the physics differ)
 //	                                                 (a grenade's copy goes before it would go off: the blast
 //	                                                 comes from the thrower's game)
 //	              The guest numbers its box changes (seq); a list from the host that does not have the guest's last
@@ -55,14 +58,25 @@ const u32 KEEP_FRAMES = 10;     // an item's last move counts for the next one t
 const float GROUND_RADIUS = 4.f;
 const u32 THROW_WAIT_MS = 2000;     // a thrown copy is looked for this long after it was made
 const u32 GRENADE_LIFE_MS = 3000;   // a grenade's copy goes then (it would not go off: it is no live one)
+const u32 STILL_MS = 500;           // a thrown thing this long without moving has come to rest
+const u32 FLIGHT_MS = 15000;        // a throw is followed this long at most
 
 struct Throw
 {
 	std::string section;
 	Fvector from, velocity;
 	u32 at;
+	u32 n;
 };
 std::vector<Throw> throws;          // copies of the partner's throws on their way into the world
+struct Flight
+{
+	u16 id;
+	u32 n, at, still_since;
+};
+std::vector<Flight> flights;        // this player's thrown bolts until they come to rest
+u32 throw_n = 0;
+std::map<u32, std::pair<u16, u32>> copies; // the partner's throw -> its copy here, when made
 std::map<u16, u32> grenades;        // grenade copies -> when they go
 
 struct Left
@@ -355,8 +369,11 @@ void thrown(CObject* missile, const Fvector& from, const Fvector& v)
 {
 	if (off() || !missile)
 		return;
+	u32 n = ++throw_n;
 	outgoing.push_back("throw|" + sect(missile) + "|" + f2(from.x) + "|" + f2(from.y) + "|" + f2(from.z) + "|" + f2(v.x) + "|" +
-		f2(v.y) + "|" + f2(v.z));
+		f2(v.y) + "|" + f2(v.z) + "|" + std::to_string(n));
+	if (!smart_cast<CGrenade*>(missile))
+		flights.push_back({missile->ID(), n, Device.dwTimeGlobal, 0});
 }
 
 namespace
@@ -393,6 +410,8 @@ void launch(u32 now)
 			}
 			shell->set_LinearVel(it->velocity);
 			trace("~", "launched " + it->section, "");
+			if (it->n)
+				copies[it->n] = {found->ID(), now};
 			if (smart_cast<CGrenade*>(found))
 				grenades[found->ID()] = now + GRENADE_LIFE_MS;
 			it = throws.erase(it);
@@ -405,6 +424,35 @@ void launch(u32 now)
 		else
 			++it;
 	}
+	// this player's bolts: where each came to rest goes to the partner
+	for (auto it = flights.begin(); it != flights.end();)
+	{
+		CObject* o = find(it->id);
+		CPhysicsShellHolder* h = smart_cast<CPhysicsShellHolder*>(o);
+		if (!h || o->H_Parent() || now - it->at > FLIGHT_MS)
+		{
+			it = flights.erase(it);
+			continue;
+		}
+		Fvector v;
+		v.set(0.f, 0.f, 0.f);
+		if (h->PPhysicsShell() && h->PPhysicsShell()->isActive())
+			h->PPhysicsShell()->get_LinearVel(v);
+		if (v.magnitude() > 0.05f)
+			it->still_since = 0;
+		else if (!it->still_since)
+			it->still_since = now;
+		else if (now - it->still_since > STILL_MS)
+		{
+			const Fvector& p = o->Position();
+			outgoing.push_back("land|" + std::to_string(it->n) + "|" + f2(p.x) + "|" + f2(p.y) + "|" + f2(p.z));
+			it = flights.erase(it);
+			continue;
+		}
+		++it;
+	}
+	for (auto it = copies.begin(); it != copies.end();)
+		it = now - it->second.second > FLIGHT_MS + 5000 ? copies.erase(it) : ++it;
 	for (auto it = grenades.begin(); it != grenades.end();)
 	{
 		if (now < it->second)
@@ -428,6 +476,8 @@ void frame(bool host, bool linked, std::vector<std::string>& out)
 		drops.clear();
 		throws.clear();
 		grenades.clear();
+		flights.clear();
+		copies.clear();
 		outgoing.clear();
 		snap_at.clear();
 		loot_at.clear();
@@ -553,9 +603,36 @@ void receive(bool host, const std::string& line)
 		t.from = {(float)atof(a[2].c_str()), (float)atof(a[3].c_str()), (float)atof(a[4].c_str())};
 		t.velocity = {(float)atof(a[5].c_str()), (float)atof(a[6].c_str()), (float)atof(a[7].c_str())};
 		t.at = Device.dwTimeGlobal;
+		t.n = a.size() >= 9 ? (u32)atoi(a[8].c_str()) : 0;
 		u32 lv = ai().level_graph().vertex_id(t.from);
 		spawn(t.section, u16(-1), "1.000", "0", &t.from, lv, g_actor->ai_location().game_vertex_id());
 		throws.push_back(t);
+	}
+	else if (kind == "land" && a.size() >= 5)
+	{
+		// the partner's bolt came to rest: its copy here goes there
+		auto c = copies.find((u32)atoi(a[1].c_str()));
+		CObject* o = c != copies.end() ? find(c->second.first) : nullptr;
+		CPhysicsShellHolder* h = smart_cast<CPhysicsShellHolder*>(o);
+		if (h && !o->H_Parent())
+		{
+			Fvector p = {(float)atof(a[2].c_str()), (float)atof(a[3].c_str()), (float)atof(a[4].c_str())};
+			float off = o->Position().distance_to(p);
+			Fmatrix m = o->XFORM();
+			m.c = p;
+			if (h->PPhysicsShell() && h->PPhysicsShell()->isActive())
+			{
+				Fvector zero;
+				zero.set(0.f, 0.f, 0.f);
+				h->PPhysicsShell()->SetTransform(m, mh_unspecified);
+				h->PPhysicsShell()->set_LinearVel(zero);
+				h->PPhysicsShell()->set_AngularVel(zero);
+			}
+			o->XFORM().set(m);
+			trace("~", "landed copy " + a[1] + " moved " + f2(off), "");
+		}
+		if (c != copies.end())
+			copies.erase(c);
 	}
 	else if (kind == "btake" && a.size() >= 5)
 	{
