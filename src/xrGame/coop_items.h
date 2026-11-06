@@ -36,4 +36,6 @@ void ignore_box(u16 id, bool ignore);
 // the host's choice: boxes and bodies shared (one's take is gone for the other too) or each player's own copy
 void set_shared(bool shared);
 void pause(u32 ms);
+// r16: an item given to the partner (the exchange box): its whole state goes, the partner's game makes it the same
+bool gift(u16 id);
 } // namespace coop_items

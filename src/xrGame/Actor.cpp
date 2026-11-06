@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "coop_props.h"
 #include "Actor_Flags.h"
 #include "hudmanager.h"
 #ifdef DEBUG
@@ -567,6 +568,12 @@ void CActor::Hit(SHit* pHDS)
 	if (m_coop_net)
 	{
 		const CGameObject* who = smart_cast<const CGameObject*>(pHDS->who);
+		// co-op (r16): this player's own shot at the partner - friendly fire, told to the partner by the engine
+		if (who && g_actor && who->ID() == g_actor->ID())
+		{
+			coop_props::friendly(pHDS, this);
+			return;
+		}
 		if (who)
 			callback(GameObject::eHit)(lua_game_object(), pHDS->damage(), pHDS->direction(), who->lua_game_object(), pHDS->boneID);
 		::luabind::functor<void> partner_hit;

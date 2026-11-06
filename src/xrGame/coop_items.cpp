@@ -40,6 +40,8 @@
 #include "PhysicsShellHolder.h"
 #include "../xrphysics/PhysicsShell.h"
 #include "Grenade.h"
+#include "xrServer.h"
+#include "../xrServerEntities/xrMessages.h"
 
 #include <map>
 #include <set>
@@ -310,6 +312,105 @@ CObject* ground_item(u16 id, const std::string& section, const Fvector& pos)
 void set_note(std::function<void(const std::string&)> note) { note_fn = note; }
 void ignore_box(u16 id, bool ignore) { if (ignore) ignored.insert(id); else ignored.erase(id); }
 void pause(u32 ms) { paused_until = Device.dwTimeGlobal + ms; }
+
+namespace
+{
+std::string hex(const u8* b, u32 n)
+{
+	static const char* d = "0123456789abcdef";
+	std::string r;
+	r.reserve(n * 2);
+	for (u32 i = 0; i < n; i++)
+	{
+		r += d[b[i] >> 4];
+		r += d[b[i] & 15];
+	}
+	return r;
+}
+
+u32 unhex(const std::string& s, u8* out, u32 max)
+{
+	u32 n = 0;
+	for (size_t i = 0; i + 1 < s.size() && n < max; i += 2)
+	{
+		auto v = [](char c) { return c >= 'a' ? c - 'a' + 10 : (c >= 'A' ? c - 'A' + 10 : c - '0'); };
+		out[n++] = (u8)(v(s[i]) << 4 | v(s[i + 1]));
+	}
+	return n;
+}
+
+// the partner's item: made in this player's inventory from its whole state (condition, ammo, addons, upgrades)
+void make_gift(const std::string& section, const std::string& state)
+{
+	if (!g_actor || !ai().get_alife() || !pSettings->section_exist(section.c_str()))
+		return;
+	CALifeSimulator& sim = const_cast<CALifeSimulator&>(ai().alife());
+	const Fvector& p = g_actor->Position();
+	u32 lv = g_actor->ai_location().level_vertex_id();
+	GameGraph::_GRAPH_ID gv = g_actor->ai_location().game_vertex_id();
+	CSE_Abstract* item = sim.spawn_item(section.c_str(), p, lv, gv, g_actor->ID(), false);
+	if (!item)
+		return;
+	static u8 buf[NET_PacketSizeLimit];
+	u32 n = unhex(state, buf, sizeof(buf));
+	u16 id = item->ID;
+	if (n > 4)
+	{
+		NET_Packet in;
+		in.w(buf, n);
+		in.r_seek(0);
+		u16 state_size = 0;
+		in.r_u16(state_size);
+		IPureServerObject* s = smart_cast<IPureServerObject*>(item);
+		if (s)
+		{
+			s->STATE_Read(in, state_size);
+			s->UPDATE_Read(in);
+		}
+		// (this game's own: where it is, whose it is, no story of the partner's world)
+		item->ID = id;
+		item->ID_Parent = g_actor->ID();
+		item->o_Position = p;
+		if (CSE_ALifeObject* o = smart_cast<CSE_ALifeObject*>(item))
+		{
+			o->m_tNodeID = lv;
+			o->m_tGraphID = gv;
+			o->m_story_id = ALife::_STORY_ID(-1);
+		}
+	}
+	NET_Packet packet;
+	packet.w_begin(M_SPAWN);
+	packet.w_stringZ(section.c_str());
+	item->Spawn_Write(packet, FALSE);
+	sim.server().FreeID(item->ID, 0);
+	F_entity_Destroy(item);
+	ClientID client;
+	client.set(0xffff);
+	u16 dummy;
+	packet.r_begin(dummy);
+	applying = true;
+	sim.server().Process_spawn(packet, client);
+	applying = false;
+}
+} // namespace
+
+bool gift(u16 id)
+{
+	if (!ai().get_alife())
+		return false;
+	CSE_Abstract* se = ai().alife().objects().object(id, true);
+	IPureServerObject* s = smart_cast<IPureServerObject*>(se);
+	if (!se || !s)
+		return false;
+	NET_Packet state, update, both;
+	s->STATE_Write(state);
+	s->UPDATE_Write(update);
+	both.w_u16((u16)state.B.count);
+	both.w(state.B.data, state.B.count);
+	both.w(update.B.data, update.B.count);
+	outgoing.push_back("gift|" + std::string(se->name()) + "|" + hex(both.B.data, both.B.count));
+	return true;
+}
 void set_shared(bool on) { shared = on; }
 
 void left(CObject* owner, CInventoryItem* item, bool destroyed)
@@ -607,6 +708,20 @@ void receive(bool host, const std::string& line)
 		u32 lv = ai().level_graph().vertex_id(t.from);
 		spawn(t.section, u16(-1), "1.000", "0", &t.from, lv, g_actor->ai_location().game_vertex_id());
 		throws.push_back(t);
+	}
+	else if (kind == "gift" && a.size() >= 3)
+	{
+		pause(2000); // (not a pickup from the ground)
+		make_gift(a[1], a[2]);
+		try
+		{
+			luabind::functor<void> f;
+			if (ai().script_engine().functor("coop_trade.engine_gift", f))
+				f(a[1].c_str());
+		}
+		catch (...)
+		{
+		}
 	}
 	else if (kind == "land" && a.size() >= 5)
 	{

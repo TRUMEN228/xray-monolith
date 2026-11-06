@@ -16,6 +16,8 @@
 #include "ai_space.h"
 #include "script_engine.h"
 #include "../xrphysics/PhysicsShell.h"
+#include "Hit.h"
+#include "../Include/xrRender/Kinematics.h"
 
 #include <map>
 #include <set>
@@ -40,6 +42,7 @@ std::map<u16, float> door_told;     // door -> the angle last told or reached
 std::map<u16, float> door_target;   // door -> the partner's angle it is driven to
 u32 next_door_scan = 0;
 bool applying = false;
+bool friendly_fire = false;
 
 std::string f3(float v)
 {
@@ -168,6 +171,20 @@ void doors_frame(bool same_level, u32 now)
 } // namespace
 
 void set_shared_money(bool on) { shared_money = on; }
+void set_friendly_fire(bool on) { friendly_fire = on; }
+
+void friendly(const SHit* h, CObject* puppet)
+{
+	if (!friendly_fire || !h || h->damage() <= 0.f)
+		return;
+	LPCSTR bone = "";
+	IKinematics* k = puppet ? smart_cast<IKinematics*>(puppet->Visual()) : nullptr;
+	if (k && h->boneID != BI_NONE && h->boneID < k->LL_BoneCount())
+		bone = k->LL_BoneName_dbg(h->boneID);
+	Fvector d = h->direction();
+	outgoing.push_back("ff|" + f3(h->damage()) + "|" + std::to_string((int)h->hit_type) + "|" + bone + "|" + f3(d.x) + "|" +
+		f3(d.y) + "|" + f3(d.z) + "|" + f3(h->phys_impulse()));
+}
 void skip_door(u16 id) { scripted_doors.insert(id); }
 
 void give_money(int amount)
@@ -207,6 +224,9 @@ void frame(bool host, bool same_level, bool in_game, std::vector<std::string>& o
 	money_frame(host, in_game);
 	doors_frame(same_level, Device.dwTimeGlobal);
 	coop_partner::hits(host, same_level, out);
+	std::string census;
+	if (host && same_level && coop_creatures::census(census, Device.dwTimeGlobal))
+		out.push_back(census);
 	if (in_game)
 		for (auto& l : outgoing)
 		{
@@ -224,7 +244,16 @@ void receive(bool host, const std::string& line)
 		return;
 	auto a = split(line, '|');
 	const std::string& kind = a[0];
-	if (kind == "hit")
+	if (kind == "census")
+	{
+		// the host's creatures for the guest's mirror
+		if (!host)
+			call("coop_mirror.engine_census", line.substr(7).c_str());
+	}
+	else if (kind == "ff" && a.size() >= 8)
+		call("coop_team.engine_ffhit", (float)atof(a[1].c_str()), atoi(a[2].c_str()), a[3].c_str(), (float)atof(a[4].c_str()),
+			(float)atof(a[5].c_str()), (float)atof(a[6].c_str()), (float)atof(a[7].c_str()));
+	else if (kind == "hit")
 	{
 		if (host)
 			coop_partner::hit_in(line.substr(4));

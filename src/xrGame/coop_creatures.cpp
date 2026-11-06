@@ -9,6 +9,11 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "pch_script.h"
+#include "ai_space.h"
+#include "alife_simulator.h"
+#include "alife_object_registry.h"
+#include "ai_object_location.h"
+#include "../xrServerEntities/xrServer_Objects_ALife_Monsters.h"
 #include "coop_creatures.h"
 #include "coop_items.h"
 #include "Level.h"
@@ -294,6 +299,56 @@ u16 host_id(u16 id)
 }
 void set_partner(u16 id) { partner = id; }
 u16 partner_id() { return partner; }
+
+// the mirror's list: host id:section:x:y:z:level vertex:game vertex:alive:squad:squad section:smart, as coop_mirror's
+// own list was (r16: the engine sends it)
+bool census(std::string& out, u32 now)
+{
+	static u32 next = 0;
+	const u32 CENSUS_MS = 1500;
+	const float CENSUS_RADIUS = 130.f;
+	if (!g_actor || !ai().get_alife() || now < next)
+		return false;
+	next = now + CENSUS_MS;
+	Fvector me = g_actor->Position(), them = me;
+	CObject* p = partner != NONE ? Level().Objects.net_Find(partner) : nullptr;
+	if (p)
+		them = p->Position();
+	LPCSTR lname = Level().name().c_str();
+	char head[160];
+	xr_sprintf(head, "census|%u|%s|%.1f|%.1f|%.1f", now, lname ? lname : "", me.x, me.y, me.z);
+	out = head;
+	for (u32 i = 0, n = Level().Objects.o_count(); i < n; i++)
+	{
+		CObject* o = Level().Objects.o_get_by_iterator(i);
+		CCustomMonster* m = smart_cast<CCustomMonster*>(o);
+		// (a psy dog's phantoms live seconds and each game makes its own)
+		if (!m || o->ID() == partner || o->getDestroy() || strstr(o->cNameSect().c_str(), "phantom"))
+			continue;
+		const Fvector& pos = o->Position();
+		if (pos.distance_to(me) >= CENSUS_RADIUS && pos.distance_to(them) >= CENSUS_RADIUS)
+			continue;
+		u16 sq = NONE, smart = NONE;
+		std::string sq_sec;
+		CSE_ALifeMonsterAbstract* se = smart_cast<CSE_ALifeMonsterAbstract*>(ai().alife().objects().object(o->ID(), true));
+		if (se && m->g_Alive())
+		{
+			sq = se->m_group_id;
+			smart = se->m_smart_terrain_id;
+			CSE_Abstract* squad = sq != NONE ? ai().alife().objects().object(sq, true) : nullptr;
+			if (squad)
+				sq_sec = squad->name();
+			else
+				sq = NONE;
+		}
+		char e[256];
+		xr_sprintf(e, "|%u:%s:%.1f:%.1f:%.1f:%u:%u:%d:%s:%s:%s", o->ID(), o->cNameSect().c_str(), pos.x, pos.y, pos.z,
+			m->ai_location().level_vertex_id(), (u32)m->ai_location().game_vertex_id(), m->g_Alive() ? 1 : 0,
+			sq != NONE ? std::to_string(sq).c_str() : "", sq_sec.c_str(), smart != NONE ? std::to_string(smart).c_str() : "");
+		out += e;
+	}
+	return true;
+}
 
 u16 target_of(u16 id)
 {

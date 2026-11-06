@@ -25,6 +25,8 @@ void map(u16 host_id, u16 local_id);
 void unmap(u16 host_id);
 void clear_map();
 void set_partner(u16 id);
+// host (r16): the creatures near either player for the guest's mirror (coop_mirror), once in a while (false: not yet)
+bool census(std::string& out, u32 now);
 u16 partner_id(); // the partner's puppet here (65535 none)
 // the pairs both ways (an id with no pair is the same in both games)
 u16 local_id_of(u16 host_id);
