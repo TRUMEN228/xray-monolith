@@ -49,9 +49,10 @@ namespace
 // Protocol 7 (Engine 8-11, the 2.10 launcher) does not understand it. 9 (r13): the items' lines (MsgItems).
 // 10 (r14): the host's time, weather and the scripts' world state (MsgWorld), the PDA's messages (MsgNews).
 // 11 (r15): where each player is (MsgPartner), money, hits and the world's physical things (MsgProps).
-// 12 (r16): the mirror's list (census), friendly fire (ff), items given to the partner (gift)
-const char* PROTOCOL = "12";
-const char* ENGINE_REVISION = "16"; // coop_engine_version(), told to the partner in the hello
+// 12 (r16): the mirror's list (census), friendly fire (ff), items given to the partner (gift).
+// 13 (r17): the host's creatures' hits on the guest (phit), the host's new items as their whole state (spawn)
+const char* PROTOCOL = "13";
+const char* ENGINE_REVISION = "17"; // coop_engine_version(), told to the partner in the hello
 enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11, MsgNews = 12, MsgPartner = 13, MsgProps = 14 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere

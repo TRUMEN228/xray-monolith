@@ -34,4 +34,6 @@ void skip_door(u16 id);          // a scripted door (ph_door): its own scripts m
 // r16: this player hit the partner's puppet (friendly fire, when the host allows it: set_friendly_fire)
 void friendly(const SHit* hit, CObject* puppet);
 void set_friendly_fire(bool on);
+// r17 (host): a creature hit the guest's puppet - the hit goes to the guest's game as it is
+void creature_hit(const SHit* hit, CObject* puppet, CObject* who);
 } // namespace coop_props

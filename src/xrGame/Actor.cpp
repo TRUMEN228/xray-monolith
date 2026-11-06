@@ -574,6 +574,8 @@ void CActor::Hit(SHit* pHDS)
 			coop_props::friendly(pHDS, this);
 			return;
 		}
+		// co-op (r17): a creature's hit on the guest's puppet goes to the guest's game by the engine
+		coop_props::creature_hit(pHDS, this, const_cast<CGameObject*>(who));
 		if (who)
 			callback(GameObject::eHit)(lua_game_object(), pHDS->damage(), pHDS->direction(), who->lua_game_object(), pHDS->boneID);
 		::luabind::functor<void> partner_hit;

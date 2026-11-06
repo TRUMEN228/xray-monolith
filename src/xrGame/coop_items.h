@@ -38,4 +38,6 @@ void set_shared(bool shared);
 void pause(u32 ms);
 // r16: an item given to the partner (the exchange box): its whole state goes, the partner's game makes it the same
 bool gift(u16 id);
+// r17 (host): a new item of the world for the guest as its whole state; kind: art, ground or box
+bool world_item(u16 id, LPCSTR kind);
 } // namespace coop_items

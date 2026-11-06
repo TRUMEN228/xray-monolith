@@ -339,20 +339,18 @@ u32 unhex(const std::string& s, u8* out, u32 max)
 	return n;
 }
 
-// the partner's item: made in this player's inventory from its whole state (condition, ammo, addons, upgrades)
-void make_gift(const std::string& section, const std::string& state)
+// an item of the partner's made here from its whole state (condition, ammo, addons, upgrades): in this player's
+// inventory (a gift), a box or on the ground (the host's new items, r17). Returns its id here (65535: not made)
+u16 make_copy(const std::string& section, const std::string& state, u16 parent, Fvector p, u32 lv, GameGraph::_GRAPH_ID gv)
 {
-	if (!g_actor || !ai().get_alife() || !pSettings->section_exist(section.c_str()))
-		return;
+	if (!ai().get_alife() || !pSettings->section_exist(section.c_str()))
+		return u16(-1);
 	CALifeSimulator& sim = const_cast<CALifeSimulator&>(ai().alife());
-	const Fvector& p = g_actor->Position();
-	u32 lv = g_actor->ai_location().level_vertex_id();
-	GameGraph::_GRAPH_ID gv = g_actor->ai_location().game_vertex_id();
-	CSE_Abstract* item = sim.spawn_item(section.c_str(), p, lv, gv, g_actor->ID(), false);
+	CSE_Abstract* item = sim.spawn_item(section.c_str(), p, lv, gv, parent, false);
 	if (!item)
 	{
-		trace("~", "gift " + section + " not spawned");
-		return;
+		trace("~", "copy " + section + " not spawned");
+		return u16(-1);
 	}
 	static u8 buf[NET_PacketSizeLimit];
 	u32 n = unhex(state, buf, sizeof(buf));
@@ -373,7 +371,7 @@ void make_gift(const std::string& section, const std::string& state)
 		}
 		// (this game's own: where it is, whose it is, no story of the partner's world)
 		item->ID = id;
-		item->ID_Parent = g_actor->ID();
+		item->ID_Parent = parent;
 		item->o_Position = p;
 		if (CSE_ALifeObject* o = smart_cast<CSE_ALifeObject*>(item))
 		{
@@ -381,6 +379,24 @@ void make_gift(const std::string& section, const std::string& state)
 			o->m_tGraphID = gv;
 			o->m_story_id = ALife::_STORY_ID(-1);
 		}
+	}
+	// an owner online here takes it at once (as alife():create does); on the ground or in one offline it is the
+	// simulation's
+	CSE_ALifeDynamicObject* owner = parent != u16(-1) ? ai().alife().objects().object(parent, true) : nullptr;
+	if (!owner || !owner->m_bOnline)
+	{
+		CSE_ALifeDynamicObject* d = smart_cast<CSE_ALifeDynamicObject*>(item);
+		if (!d)
+		{
+			sim.server().FreeID(item->ID, 0);
+			F_entity_Destroy(item);
+			return u16(-1);
+		}
+		applying = true;
+		sim.register_object(d, true);
+		applying = false;
+		trace("~", "copy " + section + " registered id " + std::to_string(d->ID) + " parent " + std::to_string(parent));
+		return d->ID;
 	}
 	NET_Packet packet;
 	packet.w_begin(M_SPAWN);
@@ -395,18 +411,40 @@ void make_gift(const std::string& section, const std::string& state)
 	applying = true;
 	CSE_Abstract* made = sim.server().Process_spawn(packet, client);
 	applying = false;
-	trace("~", "gift " + section + (made ? " made id " + std::to_string(made->ID) + " parent " + std::to_string(made->ID_Parent) : " not made") + " state bytes " + std::to_string(n));
+	trace("~", "copy " + section + (made ? " made id " + std::to_string(made->ID) + " parent " + std::to_string(made->ID_Parent) : " not made") + " state bytes " + std::to_string(n));
+	return made ? made->ID : u16(-1);
 }
-} // namespace
 
-bool gift(u16 id)
+void make_gift(const std::string& section, const std::string& state)
 {
-	if (!ai().get_alife())
+	if (g_actor)
+		make_copy(section, state, g_actor->ID(), g_actor->Position(), g_actor->ai_location().level_vertex_id(),
+			g_actor->ai_location().game_vertex_id());
+}
+
+template <typename R, typename... A>
+bool call_ret(LPCSTR name, R& out, A... args)
+{
+	try
+	{
+		luabind::functor<R> f;
+		if (!ai().script_engine().functor(name, f))
+			return false;
+		out = f(args...);
+		return true;
+	}
+	catch (...)
+	{
 		return false;
-	CSE_Abstract* se = ai().alife().objects().object(id, true);
+	}
+}
+
+// an item's whole state as hex: the state's size, the state, the update
+std::string state_hex(CSE_Abstract* se)
+{
 	IPureServerObject* s = smart_cast<IPureServerObject*>(se);
-	if (!se || !s)
-		return false;
+	if (!s)
+		return "";
 	NET_Packet state, update, both;
 	// (a packet's write position is not set by its constructor)
 	state.B.count = update.B.count = both.B.count = 0;
@@ -415,7 +453,36 @@ bool gift(u16 id)
 	both.w_u16((u16)state.B.count);
 	both.w(state.B.data, state.B.count);
 	both.w(update.B.data, update.B.count);
-	outgoing.push_back("gift|" + std::string(se->name()) + "|" + hex(both.B.data, both.B.count));
+	return hex(both.B.data, both.B.count);
+}
+} // namespace
+
+bool gift(u16 id)
+{
+	if (!ai().get_alife())
+		return false;
+	CSE_Abstract* se = ai().alife().objects().object(id, true);
+	std::string st = se ? state_hex(se) : "";
+	if (st.empty())
+		return false;
+	outgoing.push_back("gift|" + std::string(se->name()) + "|" + st);
+	return true;
+}
+
+// r17: the host's new item (an artefact, a thing on the ground or in a box) goes to the guest as its whole state;
+// the guest's game makes the same there and pairs the ids (coop_spawn.engine_spawned)
+bool world_item(u16 id, LPCSTR kind)
+{
+	if (!ai().get_alife() || !kind)
+		return false;
+	CSE_ALifeDynamicObject* se = ai().alife().objects().object(id, true);
+	std::string st = se ? state_hex(se) : "";
+	if (st.empty())
+		return false;
+	char head[256];
+	xr_sprintf(head, "spawn|%u|%s|%u|%s|%.3f|%.3f|%.3f|%u|%u|", id, kind, se->ID_Parent, se->name(), se->o_Position.x,
+		se->o_Position.y, se->o_Position.z, se->m_tNodeID, (u32)se->m_tGraphID);
+	outgoing.push_back(head + st);
 	return true;
 }
 void set_shared(bool on) { shared = on; }
@@ -728,6 +795,36 @@ void receive(bool host, const std::string& line)
 		}
 		catch (...)
 		{
+		}
+	}
+	else if (kind == "spawn" && a.size() >= 11)
+	{
+		// the host's new item: the scripts say whether this game takes it (a stash of its own, one it has already)
+		u16 hid = (u16)atoi(a[1].c_str());
+		u16 hparent = (u16)atoi(a[3].c_str());
+		u16 parent = hparent == u16(-1) ? u16(-1) : coop_creatures::local_id_of(hparent);
+		bool take = false;
+		call_ret("coop_spawn.engine_may_spawn", take, (int)hid, a[2].c_str(), parent == u16(-1) ? -1 : (int)parent);
+		if (take)
+		{
+			Fvector p = {(float)atof(a[5].c_str()), (float)atof(a[6].c_str()), (float)atof(a[7].c_str())};
+			u32 lv = (u32)strtoul(a[8].c_str(), nullptr, 10);
+			u32 gv = (u32)strtoul(a[9].c_str(), nullptr, 10);
+			if (!ai().level_graph().valid_vertex_id(lv))
+				lv = ai().level_graph().vertex_id(p);
+			if (gv > 0xffff)
+				gv = g_actor->ai_location().game_vertex_id();
+			pause(1000);
+			u16 made = make_copy(a[4], a[10], parent, p, lv, (GameGraph::_GRAPH_ID)gv);
+			try
+			{
+				luabind::functor<void> f;
+				if (ai().script_engine().functor("coop_spawn.engine_spawned", f))
+					f((int)hid, made == u16(-1) ? -1 : (int)made, a[4].c_str(), a[2].c_str());
+			}
+			catch (...)
+			{
+			}
 		}
 	}
 	else if (kind == "land" && a.size() >= 5)

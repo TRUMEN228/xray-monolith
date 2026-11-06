@@ -9,6 +9,7 @@
 #include "coop_props.h"
 #include "coop_creatures.h"
 #include "coop_partner.h"
+#include "CustomMonster.h"
 #include "Level.h"
 #include "Actor.h"
 #include "PhysicObject.h"
@@ -43,6 +44,7 @@ std::map<u16, float> door_target;   // door -> the partner's angle it is driven 
 u32 next_door_scan = 0;
 bool applying = false;
 bool friendly_fire = false;
+bool is_host = false;
 
 std::string f3(float v)
 {
@@ -173,6 +175,20 @@ void doors_frame(bool same_level, u32 now)
 void set_shared_money(bool on) { shared_money = on; }
 void set_friendly_fire(bool on) { friendly_fire = on; }
 
+void creature_hit(const SHit* h, CObject* puppet, CObject* who)
+{
+	// (an anomaly or a fall hurts the guest in its own game; the host's own shots are friendly fire)
+	if (!is_host || !h || h->damage() <= 0.f || !smart_cast<CCustomMonster*>(who))
+		return;
+	LPCSTR bone = "";
+	IKinematics* k = puppet ? smart_cast<IKinematics*>(puppet->Visual()) : nullptr;
+	if (k && h->boneID != BI_NONE && h->boneID < k->LL_BoneCount())
+		bone = k->LL_BoneName_dbg(h->boneID);
+	Fvector d = h->direction();
+	outgoing.push_back("phit|" + f3(h->damage()) + "|" + std::to_string((int)h->hit_type) + "|" + bone + "|" +
+		std::to_string(who->ID()) + "|" + f3(d.x) + "|" + f3(d.y) + "|" + f3(d.z) + "|" + f3(h->phys_impulse()));
+}
+
 void friendly(const SHit* h, CObject* puppet)
 {
 	if (!friendly_fire || !h || h->damage() <= 0.f)
@@ -221,6 +237,7 @@ void frame(bool host, bool same_level, bool in_game, std::vector<std::string>& o
 		was_shared_linked = false;
 		return;
 	}
+	is_host = host;
 	money_frame(host, in_game);
 	doors_frame(same_level, Device.dwTimeGlobal);
 	coop_partner::hits(host, same_level, out);
@@ -249,6 +266,14 @@ void receive(bool host, const std::string& line)
 		// the host's creatures for the guest's mirror
 		if (!host)
 			call("coop_mirror.engine_census", line.substr(7).c_str());
+	}
+	else if (kind == "phit" && a.size() >= 9)
+	{
+		// the host's creature hit this player's puppet there: the hit is this player's here
+		if (!host)
+			call("coop_combat.engine_phit", (float)atof(a[1].c_str()), atoi(a[2].c_str()), a[3].c_str(),
+				(int)coop_creatures::local_id_of((u16)atoi(a[4].c_str())), (float)atof(a[5].c_str()),
+				(float)atof(a[6].c_str()), (float)atof(a[7].c_str()), (float)atof(a[8].c_str()));
 	}
 	else if (kind == "ff" && a.size() >= 8)
 		call("coop_team.engine_ffhit", (float)atof(a[1].c_str()), atoi(a[2].c_str()), a[3].c_str(), (float)atof(a[4].c_str()),
