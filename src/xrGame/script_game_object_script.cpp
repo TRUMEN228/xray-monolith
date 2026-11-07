@@ -96,6 +96,7 @@ static bool coop_spawn_item(int id, LPCSTR kind) { return coop_items::world_item
 static void coop_spawn_arm(bool on) { coop_props::set_spawns_armed(on); }
 static void coop_info_ready(bool on) { coop_props::set_info_ready(on); }
 static void coop_talk_end() { coop_props::talk_end(); }
+static void coop_info_skip(LPCSTR info) { coop_props::skip_info(info); }
 // the tests: a deal as CTrade::TransferItem tells it (a script cannot trade)
 static void coop_test_traded(int trader, int item, LPCSTR section, bool bought) { coop_props::traded((u16)trader, (u16)item, section, bought); }
 static int coop_news_count(LPCSTR text) { return coop_news::count(text); }
@@ -358,6 +359,7 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_spawn_arm", &::coop_spawn_arm),
 		def("coop_info_ready", &::coop_info_ready),
 		def("coop_talk_end", &::coop_talk_end),
+		def("coop_info_skip", &::coop_info_skip),
 		def("coop_test_traded", &::coop_test_traded),
 		def("coop_world_state", &::coop_world_state),
 		def("coop_update_check", &::coop_update_check),

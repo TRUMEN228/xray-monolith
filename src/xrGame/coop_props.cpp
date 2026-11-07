@@ -55,6 +55,7 @@ bool info_ready = false;
 std::map<u16, u32> fresh;            // host: newly registered objects -> the frame they came (looked at a frame later)
 std::map<std::string, u32> info_count; // a flag's changes sent this minute (flags that flicker are not synced)
 u32 info_reset = 0;
+std::set<std::string> info_skip;     // this player's own state, never sent
 bool quiet_now()
 {
 	// the scripts' own copies of the partner's things (a drop, a gift, a stash) are no new spawns
@@ -282,6 +283,7 @@ void doors_frame(bool same_level, u32 now)
 void set_shared_money(bool on) { shared_money = on; }
 void set_spawns_armed(bool on) { spawns_armed = on; }
 void set_info_ready(bool on) { info_ready = on; }
+void skip_info(LPCSTR info) { if (info) info_skip.insert(info); }
 
 void registered(CSE_ALifeDynamicObject* o)
 {
@@ -300,7 +302,7 @@ void unregistered(CSE_ALifeDynamicObject* o)
 
 void info_changed(LPCSTR info, bool on)
 {
-	if (applying || !info_ready || !info || !*info || !g_actor)
+	if (applying || !info_ready || !info || !*info || !g_actor || info_skip.count(info))
 		return;
 	if (Device.dwTimeGlobal > info_reset)
 	{

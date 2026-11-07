@@ -148,11 +148,10 @@ void collect(std::string& out, u32 now)
 		// where it looks: a stalker's head, a monster's body
 		{
 			float yaw = m->movement().m_body.current.yaw, pitch = 0.f;
+			// (the body's heading as the host's - the head may look aside while it walks on; a copy turned to the
+			// head would walk backwards - and the head's pitch)
 			if (CAI_Stalker* s = smart_cast<CAI_Stalker*>(m))
-			{
-				yaw = s->movement().head_orientation().current.yaw;
 				pitch = s->movement().head_orientation().current.pitch;
-			}
 			r.yaw = (s16)iFloor(angle_normalize_signed(yaw) / PI * 32767.f);
 			r.pitch = (s16)iFloor(angle_normalize_signed(pitch) / PI * 32767.f);
 		}

@@ -45,6 +45,8 @@ void set_spawns_armed(bool on);
 // r18: this player's story flags (the scripts say when the world is ready for them)
 void info_changed(LPCSTR info, bool on);
 void set_info_ready(bool on);
+// a flag of this player's own state (asleep, a window open): never sent
+void skip_info(LPCSTR info);
 // r18: this player traded with an NPC: bought (the item leaves the partner's trader) or sold (the partner's gets it)
 void traded(u16 trader, u16 item, LPCSTR section, bool bought);
 // r18: the talk with an NPC: lines and answers of the starter, the partner's choice, switches and the end
