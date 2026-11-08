@@ -80,6 +80,11 @@ void CALifeObjectRegistry::save(IWriter& memory_stream)
 		if ((*I).second->ID_Parent != 0xffff)
 			continue;
 
+		// co-op: the partner's actor puppet is never saved (it lives while the link does); the mod no longer
+		// releases and respawns it around every save, which crashed on quick saves made one after another
+		if (!xr_strcmp((*I).second->s_name, "coop_partner"))
+			continue;
+
 		save(memory_stream, (*I).second, object_count);
 	}
 

@@ -101,7 +101,7 @@ bool collect(std::string& out, u32 now)
 	return true;
 }
 
-void apply(const std::string& line)
+void apply(const std::string& line, bool scripts)
 {
 	if (!g_actor)
 		return;
@@ -139,7 +139,8 @@ void apply(const std::string& line)
 		}
 	}
 	// the rest is the scripts' (the weapon, the outfit, shots, notes)
-	call("coop_player.engine_partner", motion.c_str(), rest.c_str());
+	if (scripts)
+		call("coop_player.engine_partner", motion.c_str(), rest.c_str());
 }
 
 void actor_hit(CEntityAlive* victim, float lost, bool died)

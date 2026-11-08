@@ -62,7 +62,7 @@ extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScri
 //     host's box lists and bodies' loot; coop_items_ignore(id, on), coop_items_pause(ms); new items through
 //     coop_world.engine_spawn, open windows shown anew through coop_world.engine_refresh; coop_items_shared(on):
 //     the host's "shared loot" option (off: boxes and bodies are each player's own copy)
-static int coop_engine_version() { return 18; }
+static int coop_engine_version() { return 19; }
 
 // the game script swaps its coop_out.txt / coop_in.txt frames with the engine instead of the launcher
 static bool coop_link_host(int port, LPCSTR name, LPCSTR version) { return coop_link::host(port, name, version); }

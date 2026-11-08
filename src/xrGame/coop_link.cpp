@@ -54,7 +54,7 @@ namespace
 // 14 (r18): spawns and removals from the simulation's registry (spawn, sqm, unreg), story flags (info), trades
 // (tbuy, tsell), the talk (dlg, dlgopts, dlgpick, dlgswitch, dlgend)
 const char* PROTOCOL = "14";
-const char* ENGINE_REVISION = "18"; // coop_engine_version(), told to the partner in the hello
+const char* ENGINE_REVISION = "19"; // coop_engine_version(), told to the partner in the hello
 enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11, MsgNews = 12, MsgPartner = 13, MsgProps = 14 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
@@ -293,7 +293,8 @@ struct Bridge
 	bool creatures_new = false;
 	std::string world_in;              // the host's newest time and weather (coop_clock)
 	std::deque<std::string> news_in;   // the partner's PDA messages (coop_news)
-	std::string partner_in;            // where the partner is, newest (coop_partner)
+	std::vector<std::string> partner_in; // where the partner is, all that came since the last frame (coop_partner)
+	std::string partner_out;           // where this player is, the newest not yet sent (r19: sent first, on the fast way)
 	bool partner_new = false;
 	std::deque<std::string> props_in;  // money, hits, doors, breaks, explosions (coop_props)
 	bool world_new = false;
@@ -536,7 +537,9 @@ struct Bridge
 			news_in.push_back(body);
 			break;
 		case MsgPartner:
-			partner_in = body;
+			partner_in.push_back(body);
+			if (partner_in.size() > 20)
+				partner_in.erase(partner_in.begin());
 			partner_new = true;
 			break;
 		case MsgProps:
@@ -631,6 +634,7 @@ struct Bridge
 			std::lock_guard<std::mutex> g(m);
 			link = l;
 			outbox.clear();
+			partner_out.clear();
 			pending_state.clear();
 			resume_sent = false;
 			rtt = 0;
@@ -643,18 +647,20 @@ struct Bridge
 			u64 last_state = 0, last_ping = 0;
 			while (running)
 			{
-				std::string f;
+				std::string f, fast;
+				std::deque<std::string> batch;
 				{
 					std::unique_lock<std::mutex> g(m);
-					wake_send.wait_for(g, std::chrono::milliseconds(5));
+					// (r19: no wait while there is something to send - one frame per 5 ms let the host's queue grow
+					// without end, and the partner's movement came seconds late)
+					if (outbox.empty() && partner_out.empty())
+						wake_send.wait_for(g, std::chrono::milliseconds(5));
 					if (link != l)
 						return;
 					u64 now = now_ms();
+					fast.swap(partner_out);
 					if (!outbox.empty())
-					{
-						f = outbox.front();
-						outbox.pop_front();
-					}
+						batch.swap(outbox);
 					else if (now - last_ping >= 3000)
 					{
 						last_ping = now;
@@ -671,7 +677,13 @@ struct Bridge
 						f = frame(MsgState, text);
 					}
 				}
-				if (!f.empty() && !l->send(f))
+				bool ok = fast.empty() || l->send_fast(fast);
+				for (auto& b : batch)
+					if (ok)
+						ok = l->send(b);
+				if (ok && !f.empty())
+					ok = l->send(f);
+				if (!ok)
 				{
 					l->close(); // wakes the receive loop, which then cleans up
 					return;
@@ -696,6 +708,7 @@ struct Bridge
 			last_sent_state.clear();
 			pending_state.clear();
 			outbox.clear();
+			partner_out.clear();
 			rtt = 0;
 			state_text = role == "host" ? "listening" : "connecting";
 			if (was)
@@ -764,7 +777,8 @@ struct Bridge
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
 		bool host_role, send_creatures = false, link_up, items_linked = false, news_linked = false;
-		std::string creatures, world, partner;
+		std::string creatures, world;
+		std::vector<std::string> partner;
 		std::deque<std::string> items, news, props;
 		{
 			std::lock_guard<std::mutex> g(m);
@@ -997,10 +1011,15 @@ struct Bridge
 			if (news_linked && coop_partner::collect(here, Device.dwTimeGlobal))
 			{
 				std::lock_guard<std::mutex> g(m);
-				queue(MsgPartner, here);
+				if (link)
+				{
+					partner_out = frame(MsgPartner, here);
+					wake_send.notify_one();
+				}
 			}
-			if (!partner.empty())
-				coop_partner::apply(partner);
+			// every position that came (several may come together): the puppet's buffer gets them all
+			for (size_t i = 0; i < partner.size(); i++)
+				coop_partner::apply(partner[i], i + 1 == partner.size());
 			// money, hits and the world's physical things
 			for (auto& line : props)
 				coop_props::receive(host_role, line);

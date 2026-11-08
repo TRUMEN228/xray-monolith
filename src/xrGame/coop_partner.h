@@ -19,7 +19,8 @@ namespace coop_partner
 {
 // the session's frame: this player's line for the partner (false: not yet), and the partner's newest
 bool collect(std::string& out, u32 now);
-void apply(const std::string& line);
+// (scripts: give the scripts' part too - the newest of the frame's lines)
+void apply(const std::string& line, bool scripts = true);
 // the scripts' slower part of this player's state
 void set_extras(const std::string& extras);
 

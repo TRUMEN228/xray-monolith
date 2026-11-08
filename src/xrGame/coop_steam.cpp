@@ -29,6 +29,11 @@ enum
 };
 const int SendReliableNoNagle = 8 | 1 | 32; // reliable, no Nagle, restart a broken session instead of failing
 const int Channel = 0;
+// where the player is (r19): unreliable on its own channel - a lost one is replaced 50 ms later, and it never
+// waits for a lost reliable packet to come again (over the internet that held it back and bunched it)
+const int SendUnreliableNoNagle = 1 | 32;
+const int FastChannel = 1;
+const size_t FastMax = 1100; // one packet
 const size_t Piece = 60000; // a frame goes in pieces: header byte 0 whole, 1 part, 2 last
 
 struct CallbackMsg
@@ -237,6 +242,19 @@ struct SteamLink : coop_link::Link
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
 		return false;
+	}
+
+	bool send_fast(const std::string& f) override
+	{
+		if (closed)
+			return false;
+		if (f.size() > FastMax)
+			return send(f);
+		std::string m_(1, '\0');
+		m_ += f;
+		Identity id(peer);
+		int r = api.SendMessageToUser(msgs, id.raw, m_.data(), (u32)m_.size(), SendUnreliableNoNagle, FastChannel);
+		return r == 1 || r == 25 || r == 3; // a full queue or no session yet: this one is just lost
 	}
 
 	bool send(const std::string& f) override
@@ -480,15 +498,20 @@ void pump()
 				handle(cb.id, cb.param);
 			api.ManualDispatch_FreeLastCallback(pipe);
 		}
-		int n = api.ReceiveMessagesOnChannel(msgs, Channel, inbox, 32);
-		for (int i = 0; i < n; i++)
+		for (int ch : {Channel, FastChannel})
 		{
-			u8* m = (u8*)inbox[i];
-			const u8* data = *(u8**)m;
-			int len = *(int*)(m + 8);
-			u64_ from = api.Identity_GetSteamID64(m + 16);
-			deliver(from, data, len);
-			api.Message_Release(m);
+			int n = api.ReceiveMessagesOnChannel(msgs, ch, inbox, 32);
+			for (int i = 0; i < n; i++)
+			{
+				u8* m = (u8*)inbox[i];
+				const u8* data = *(u8**)m;
+				int len = *(int*)(m + 8);
+				u64_ from = api.Identity_GetSteamID64(m + 16);
+				// (a whole frame on the fast channel: never a piece of a reliable one)
+				if (ch == Channel || (len > 0 && data[0] == 0))
+					deliver(from, data, len);
+				api.Message_Release(m);
+			}
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
