@@ -405,7 +405,10 @@ struct Bridge
 		u64 last_in[16] = {};
 		u32 gap_max[16] = {}, in[16] = {};
 		u64 next_log = 0;
+		u32 windows = 0;
+		u32 puppet_wait = 0;
 	} net;
+	std::string net_line_now; // r20: the last second's figures for the host's panel (key=value;...)
 	bool game_in_guest_session = false, resume_sent = false;
 	bool session_sent = false;         // host: the world went to this partner (or it came back still in it)
 	u64 connected_since = 0, game_seen_since = 0;
@@ -977,22 +980,24 @@ struct Bridge
 		NetStats s;
 		{
 			std::lock_guard<std::mutex> g(m);
+			// one second's window (the panel shows it live); every tenth goes to the log too
 			if (!net.next_log)
-				net.next_log = now + 10000;
+				net.next_log = now + 1000;
 			if (now < net.next_log)
 				return;
-			u64 span = now - (net.next_log - 10000);
-			net.next_log = now + 10000;
+			u64 span = now - (net.next_log - 1000);
+			net.next_log = now + 1000;
 			s = net;
 			net = NetStats();
 			net.next_log = s.next_log;
+			net.windows = s.windows + 1;
 			for (int i = 0; i < 16; i++)
 				net.last_in[i] = s.last_in[i];
 			l = link;
 			if (!connected || where != "game" || !span)
 				return;
 		}
-		auto kb = [&](int t) { return float(s.bytes[t]) / 10240.f; };
+		auto kb = [&](int t) { return float(s.bytes[t]) / 1024.f; };
 		string1024 line;
 		xr_sprintf(line, "out KB/s: creatures %.1f, partner %.1f (%llu), items %.1f, props %.1f, state %.1f, world %.1f, file %.1f; send max %u ms, batch max %u; in: partner %u (gap max %u ms), creatures %u (gap max %u ms)",
 			kb(MsgCreatures), kb(MsgPartner), s.frames[MsgPartner], kb(MsgItems), kb(MsgProps), kb(MsgState), kb(MsgWorld),
@@ -1004,13 +1009,28 @@ struct Bridge
 		if (a && a->coop_net_buffer())
 		{
 			CCoopNetPuppet* b = a->coop_net_buffer();
-			xr_sprintf(line, "; puppet delay %u ms, late %.0f ms, waited %u ms", b->delay(), b->late(), b->take_starved());
+			s.puppet_wait = b->take_starved();
+			xr_sprintf(line, "; puppet delay %u ms, late %.0f ms, waited %u ms", b->delay(), b->late(), s.puppet_wait);
 			out += line;
 		}
 		std::string st = l ? l->status() : "";
 		if (!st.empty())
 			out += "; " + st;
-		Msg("~ coop net: %s", out.c_str());
+		// the panel's figures
+		{
+			u64 total = 0;
+			for (int i = 0; i < 16; i++)
+				total += s.bytes[i];
+			char p[512];
+			CCoopNetPuppet* b = a ? a->coop_net_buffer() : nullptr;
+			xr_sprintf(p, "out=%.1f;pin=%u;pgap=%u;cin=%u;cgap=%u;delay=%d;wait=%d;sendmax=%u;", float(total) / 1024.f,
+				s.in[MsgPartner], s.gap_max[MsgPartner], s.in[MsgCreatures], s.gap_max[MsgCreatures], b ? (int)b->delay() : -1,
+				b ? (int)s.puppet_wait : -1, s.send_max_ms);
+			std::lock_guard<std::mutex> g(m);
+			net_line_now = std::string(p) + "rtt=" + std::to_string(rtt) + ";link=" + st;
+		}
+		if (s.windows % 10 == 0)
+			Msg("~ coop net: %s", out.c_str());
 	}
 
 	void session_frame()
@@ -1707,6 +1727,16 @@ void game_out(LPCSTR text)
 }
 
 LPCSTR game_in() { return bridge().running ? bridge().game_in() : nullptr; }
+
+// r20: the last second's figures for the host's panel
+LPCSTR net_line()
+{
+	Bridge& b = bridge();
+	static string1024 out;
+	std::lock_guard<std::mutex> g(b.m);
+	xr_strcpy(out, b.connected ? b.net_line_now.c_str() : "");
+	return out;
+}
 
 // r20: the carrier's own view of the link ("" with none): the tests check the UDP side with it
 LPCSTR net_status()

@@ -37,4 +37,5 @@ LPCSTR game_in();
 // "idle", "listening", "connecting", or "connected|<partner>|<rtt ms>"; the last problem in "error|<text>"
 LPCSTR status();
 LPCSTR net_status();
+LPCSTR net_line();
 } // namespace coop_link

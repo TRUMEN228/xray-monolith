@@ -72,6 +72,7 @@ static void coop_link_out(LPCSTR text) { coop_link::game_out(text); }
 static LPCSTR coop_link_in() { return coop_link::game_in(); }
 static LPCSTR coop_link_status() { return coop_link::status(); }
 static LPCSTR coop_link_net_status() { return coop_link::net_status(); }
+static LPCSTR coop_link_net_line() { return coop_link::net_line(); }
 static bool coop_link_host_steam(LPCSTR name, LPCSTR version) { return coop_link::host_steam(name, version); }
 static bool coop_link_join_steam(LPCSTR lobby, LPCSTR name, LPCSTR version) { return coop_link::join_steam(lobby, name, version); }
 static LPCSTR coop_link_friends() { return coop_link::steam_friends(); }
@@ -334,6 +335,7 @@ void CScriptGameObject::script_register(lua_State* L)
 		def("coop_link_in", &::coop_link_in),
 		def("coop_link_status", &::coop_link_status),
 		def("coop_link_net_status", &::coop_link_net_status),
+		def("coop_link_net_line", &::coop_link_net_line),
 		def("coop_link_host_steam", &::coop_link_host_steam),
 		def("coop_link_join_steam", &::coop_link_join_steam),
 		def("coop_link_friends", &::coop_link_friends),

@@ -407,6 +407,35 @@ static void full_memory_stats()
 #endif // DEBUG
 }
 
+// Anomaly Co-op (r20): the co-op's console commands; each goes to coop_admin.console(name, args) in the mod, which
+// does it and prints the answer here (the host's panel runs the same functions)
+class CCC_Coop : public IConsole_Command
+{
+public:
+	CCC_Coop(LPCSTR N) : IConsole_Command(N) { bEmptyArgsHandled = TRUE; };
+	virtual void Execute(LPCSTR args)
+	{
+		if (!g_pGameLevel)
+		{
+			Msg("! co-op: only in a game");
+			return;
+		}
+		try
+		{
+			luabind::functor<void> f;
+			if (ai().script_engine().functor("coop_admin.console", f))
+				f(cName, args ? args : "");
+			else
+				Msg("! co-op: the mod's coop_admin is not loaded");
+		}
+		catch (...)
+		{
+			Msg("! co-op: %s failed", cName);
+		}
+	}
+	virtual void Info(TInfo& I) { xr_strcpy(I, "co-op (coop_help: all commands)"); }
+};
+
 class CCC_MemStats : public IConsole_Command
 {
 public:
@@ -2509,6 +2538,10 @@ public:
 
 void CCC_RegisterCommands()
 {
+	// Anomaly Co-op (r20)
+	for (LPCSTR n : {"coop_help", "coop_status", "coop_net", "coop_panel", "coop_kick", "coop_tp", "coop_option", "coop_time",
+		"coop_weather", "coop_give", "coop_save", "coop_load", "coop_revive", "coop_heal", "coop_overlay"})
+		Console->AddCommand(xr_new<CCC_Coop>(n));
 	//Not needed for a singleplayer-only mod
 	//g_OptConCom.Init();
 
