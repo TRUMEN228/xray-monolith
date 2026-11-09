@@ -22,6 +22,8 @@ struct Link
 	virtual void close() = 0;
 	// why it went, for the player ("" when it just closed)
 	virtual std::string why() const { return ""; }
+	// the carrier's own view of the link for the log (ping, rate, queues); "" when it has none
+	virtual std::string status() { return ""; }
 };
 } // namespace coop_link
 

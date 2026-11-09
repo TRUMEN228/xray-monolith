@@ -95,6 +95,7 @@ public:
 // has no script binder, picks nothing up and is not the player (g_actor stays the local one)
 public:
 	bool coop_net_actor() const { return m_coop_net != NULL; }
+	CCoopNetPuppet* coop_net_buffer() const { return m_coop_net; }
 	void coop_net_push(const Fvector& position, u32 remote_time);
 	void coop_net_set_state(u32 mstate, const Fvector& angles);
 	void coop_net_fire(bool on) { m_coop_fire = on; }

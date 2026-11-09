@@ -82,6 +82,9 @@ struct Api
 	void* (__cdecl* SteamNetworkingUtils)();
 	int (__cdecl* GetRelayNetworkStatus)(void*, void*);
 	void (__cdecl* InitRelayNetworkAccess)(void*);
+	// (r20, optional) the send rate and the session's state for the log
+	bool (__cdecl* SetGlobalConfigValueInt32)(void*, int, int);
+	int (__cdecl* GetSessionConnectionInfo)(void*, const void*, void*, void*);
 };
 
 Api api;
@@ -159,6 +162,8 @@ bool load_api(std::string& error)
 	L(GetRelayNetworkStatus, "SteamAPI_ISteamNetworkingUtils_GetRelayNetworkStatus");
 	L(InitRelayNetworkAccess, "SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess");
 #undef L
+	load(dll, api.SetGlobalConfigValueInt32, "SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueInt32");
+	load(dll, api.GetSessionConnectionInfo, "SteamAPI_ISteamNetworkingMessages_GetSessionConnectionInfo");
 	if (!ok)
 		error = "steam_api64.dll другой версии";
 	return ok;
@@ -242,6 +247,30 @@ struct SteamLink : coop_link::Link
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
 		return false;
+	}
+
+	std::string status() override
+	{
+		if (!api.GetSessionConnectionInfo || closed)
+			return "";
+		// SteamNetConnectionRealTimeStatus_t
+		struct
+		{
+			int state, ping;
+			float quality_local, quality_remote, out_packets, out_bytes, in_packets, in_bytes;
+			int send_rate, pending_unreliable, pending_reliable, sent_unacked;
+			long long queue_usec;
+			unsigned reserved[16];
+		} st = {};
+		static char info[4096];
+		Identity id(peer);
+		if (api.GetSessionConnectionInfo(msgs, id.raw, info, &st) <= 0)
+			return "";
+		char b[256];
+		xr_sprintf(b, "steam ping %d, quality %.2f/%.2f, out %.0f KB/s in %.0f KB/s, rate %d KB/s, queued %d+%d KB, unacked %d KB, queue %lld ms",
+			st.ping, st.quality_local, st.quality_remote, st.out_bytes / 1024.f, st.in_bytes / 1024.f, st.send_rate / 1024,
+			st.pending_reliable / 1024, st.pending_unreliable / 1024, st.sent_unacked / 1024, st.queue_usec / 1000);
+		return b;
 	}
 
 	bool send_fast(const std::string& f) override
@@ -559,6 +588,15 @@ bool init(std::string& error)
 			msgs = api.SteamNetworkingMessages();
 			utils = api.SteamNetworkingUtils();
 			api.InitRelayNetworkAccess(utils);
+	// (r20) Steam sends at 256 KB/s at most unless told: the host's creatures, the world's changes and a save for the
+	// guest queued behind that limit, and the partner's movement waited in the queue too. Allow 512 KB/s to 4 MB/s,
+	// and a send buffer that takes a save without refusing (SendBufferSize 9, SendRateMin 10, SendRateMax 11)
+	if (api.SetGlobalConfigValueInt32)
+	{
+		api.SetGlobalConfigValueInt32(utils, 9, 16 * 1024 * 1024);
+		api.SetGlobalConfigValueInt32(utils, 10, 512 * 1024);
+		api.SetGlobalConfigValueInt32(utils, 11, 4 * 1024 * 1024);
+	}
 			const char* name = api.GetPersonaName(friends);
 			persona = name ? name : "";
 			is_ready = true;

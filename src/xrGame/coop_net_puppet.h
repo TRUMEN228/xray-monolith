@@ -40,6 +40,9 @@ public:
 	void set_look(const Fvector& dir) { m_look = dir; m_look_valid = !fis_zero(dir.square_magnitude()); }
 	void set_delay(u32 delay) { m_fixed_delay = delay; }
 	u32 delay() const { return u32(m_delay); }
+	float late() const { return m_late; }
+	// ms this puppet ran past its newest key (waited for the link) since the last call
+	u32 take_starved() { u32 r = m_starved; m_starved = 0; return r; }
 
 private:
 	void reset();
@@ -66,4 +69,5 @@ private:
 	u8 m_strap = 255;
 	Fvector m_look;
 	bool m_look_valid;
+	u32 m_starved = 0;
 };

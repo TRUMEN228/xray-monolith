@@ -21,6 +21,7 @@
 #include "coop_props.h"
 #include "Level.h"
 #include "Actor.h"
+#include "coop_net_puppet.h"
 #include "UIGameCustom.h"
 #include "ai_space.h"
 #include "script_engine.h"
@@ -54,7 +55,7 @@ namespace
 // 14 (r18): spawns and removals from the simulation's registry (spawn, sqm, unreg), story flags (info), trades
 // (tbuy, tsell), the talk (dlg, dlgopts, dlgpick, dlgswitch, dlgend)
 const char* PROTOCOL = "14";
-const char* ENGINE_REVISION = "19"; // coop_engine_version(), told to the partner in the hello
+const char* ENGINE_REVISION = "20"; // coop_engine_version(), told to the partner in the hello
 enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11, MsgNews = 12, MsgPartner = 13, MsgProps = 14 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
@@ -248,6 +249,15 @@ struct Bridge
 	std::map<std::string, std::string> last_sent_state;
 	std::map<std::string, std::string> pending_state;
 	std::deque<std::string> outbox;
+	// (r20) what the link carried, for a line in the log every 10 s while both play (under m)
+	struct NetStats
+	{
+		u64 bytes[16] = {}, frames[16] = {};
+		u32 send_max_ms = 0, batch_max = 0;
+		u64 last_in[16] = {};
+		u32 gap_max[16] = {}, in[16] = {};
+		u64 next_log = 0;
+	} net;
 	bool game_in_guest_session = false, resume_sent = false;
 	bool session_sent = false;         // host: the world went to this partner (or it came back still in it)
 	u64 connected_since = 0, game_seen_since = 0;
@@ -476,6 +486,14 @@ struct Bridge
 		u8 type = (u8)f[0];
 		std::string body = f.substr(1);
 		std::lock_guard<std::mutex> g(m);
+		if (type < 16)
+		{
+			u64 t = now_ms();
+			if (net.last_in[type] && t - net.last_in[type] > net.gap_max[type])
+				net.gap_max[type] = u32(t - net.last_in[type]);
+			net.last_in[type] = t;
+			net.in[type]++;
+		}
 		switch (type)
 		{
 		case MsgHello:
@@ -677,12 +695,31 @@ struct Bridge
 						f = frame(MsgState, text);
 					}
 				}
+				u64 sent_at = now_ms();
 				bool ok = fast.empty() || l->send_fast(fast);
 				for (auto& b : batch)
 					if (ok)
 						ok = l->send(b);
 				if (ok && !f.empty())
 					ok = l->send(f);
+				{
+					std::lock_guard<std::mutex> g(m);
+					auto count = [&](const std::string& x)
+					{
+						u8 t = x.empty() ? 0 : (u8)x[0];
+						if (t < 16)
+						{
+							net.bytes[t] += x.size();
+							net.frames[t]++;
+						}
+					};
+					count(fast);
+					for (auto& b : batch)
+						count(b);
+					count(f);
+					net.send_max_ms = std::max(net.send_max_ms, u32(now_ms() - sent_at));
+					net.batch_max = std::max(net.batch_max, u32(batch.size()));
+				}
 				if (!ok)
 				{
 					l->close(); // wakes the receive loop, which then cleans up
@@ -764,6 +801,50 @@ struct Bridge
 		// the guest joins again from the menu when the host is back
 		stop();
 		Console->Execute("disconnect");
+	}
+
+	// (r20) one line every 10 s while both play: what went out by kind, how evenly the partner's frames came, how
+	// the partner's puppet plays them (delay, late, waiting for keys) and the carrier's own view (Steam)
+	void net_log(u64 now, const std::string& where)
+	{
+		std::shared_ptr<Link> l;
+		NetStats s;
+		{
+			std::lock_guard<std::mutex> g(m);
+			if (!net.next_log)
+				net.next_log = now + 10000;
+			if (now < net.next_log)
+				return;
+			u64 span = now - (net.next_log - 10000);
+			net.next_log = now + 10000;
+			s = net;
+			net = NetStats();
+			net.next_log = s.next_log;
+			for (int i = 0; i < 16; i++)
+				net.last_in[i] = s.last_in[i];
+			l = link;
+			if (!connected || where != "game" || !span)
+				return;
+		}
+		auto kb = [&](int t) { return float(s.bytes[t]) / 10240.f; };
+		string1024 line;
+		xr_sprintf(line, "out KB/s: creatures %.1f, partner %.1f (%llu), items %.1f, props %.1f, state %.1f, world %.1f, file %.1f; send max %u ms, batch max %u; in: partner %u (gap max %u ms), creatures %u (gap max %u ms)",
+			kb(MsgCreatures), kb(MsgPartner), s.frames[MsgPartner], kb(MsgItems), kb(MsgProps), kb(MsgState), kb(MsgWorld),
+			kb(MsgFile), s.send_max_ms, s.batch_max, s.in[MsgPartner], s.gap_max[MsgPartner], s.in[MsgCreatures],
+			s.gap_max[MsgCreatures]);
+		std::string out = line;
+		u16 pid = coop_creatures::partner_id();
+		CActor* a = pid != u16(-1) && g_pGameLevel ? smart_cast<CActor*>(Level().Objects.net_Find(pid)) : nullptr;
+		if (a && a->coop_net_buffer())
+		{
+			CCoopNetPuppet* b = a->coop_net_buffer();
+			xr_sprintf(line, "; puppet delay %u ms, late %.0f ms, waited %u ms", b->delay(), b->late(), b->take_starved());
+			out += line;
+		}
+		std::string st = l ? l->status() : "";
+		if (!st.empty())
+			out += "; " + st;
+		Msg("~ coop net: %s", out.c_str());
 	}
 
 	void session_frame()
@@ -1059,6 +1140,7 @@ struct Bridge
 				coop_creatures::update(Device.dwTimeGlobal);
 			}
 		}
+		net_log(now, where);
 		if (!sent_mode.empty())
 			call_script("coop_session.engine_world_sent", sent_mode.c_str());
 		if (!before_load.empty())

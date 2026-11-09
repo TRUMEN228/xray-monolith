@@ -163,6 +163,8 @@ bool CCoopNetPuppet::sample(Fvector& out)
 		else
 		{
 			// past the newest key: keep going along the last step for a moment, then wait
+			if (m_last_valid && now > m_last_time)
+				m_starved += now - m_last_time;
 			float over = float(std::min<s64>(t - s64(b.t), max_extrapolation));
 			Fvector v;
 			v.sub(b.p, a.p).div(span);
