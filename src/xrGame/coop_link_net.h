@@ -20,6 +20,8 @@ struct Link
 	virtual bool send_fast(const std::string& frame) { return send(frame); }
 	// called by the sender all the time: a carrier that holds frames back gives out more of them (false = gone)
 	virtual bool tick() { return true; }
+	// frames that come another way than receive() (a TCP link's UDP side) go here
+	std::function<void(const std::string&)> side;
 	virtual bool receive(std::string& frame) = 0; // blocks; false = gone
 	virtual void close() = 0;
 	// why it went, for the player ("" when it just closed)

@@ -156,35 +156,180 @@ std::string frame(u8 type, const std::string& payload)
 }
 
 ////////////////////////////////////////////////////////////////////////// transport
+// A TCP link with a UDP side (r20): what is replaced 50 ms later (where the player is, the host's creatures) goes by
+// UDP to the same address and port, never waiting behind a lost TCP segment or a save on its way; everything else
+// goes by TCP in order, written out a piece at a time so a save never holds the sender. The UDP side is used only
+// while the partner's datagrams come (a firewall or a TCP-only relay leaves everything on TCP, as before r20).
+const u16 UDP_MAGIC = 0x5043;      // "CP"
+const size_t UDP_MAX = 1200;
+const u32 UDP_ALIVE_MS = 3000;     // the partner's datagrams came this recently: the UDP side works
+const size_t TCP_PIECE = 16 * 1024;
+
 struct TcpLink : Link
 {
 	SOCKET s;
 	std::mutex send_lock;
+	std::string out;                // TCP bytes not written yet
+	size_t out_off = 0;
+	// the UDP side: the host's listening socket (shared, not ours) or the guest's own
+	SOCKET u = INVALID_SOCKET;
+	bool own_udp = false;
+	sockaddr_in peer_udp = {};      // where the partner's datagrams come from / go to
+	bool peer_known = false;
+	u32 peer_ip = 0;                // only the TCP partner's address is heard on UDP
+	std::atomic<u64> heard_udp{0};
+	u64 next_probe = 0;
+	std::mutex udp_lock;
+	std::thread udp_thread;
+	std::atomic<bool> open{true};
 
-	explicit TcpLink(SOCKET sock) : s(sock)
+	TcpLink(SOCKET sock, SOCKET host_udp) : s(sock)
 	{
 		BOOL on = TRUE;
 		setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*)&on, sizeof(on));
 		DWORD timeout = 15000; // pings come every 3 s
 		setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+		sockaddr_in p = {};
+		int pl = sizeof(p);
+		if (getpeername(s, (sockaddr*)&p, &pl) == 0)
+			peer_ip = p.sin_addr.s_addr;
+		if (host_udp != INVALID_SOCKET)
+			u = host_udp; // the host learns the guest's UDP address from its first datagram
+		else
+		{
+			// the guest: its own socket, to the address and port it reached the host's TCP at
+			u = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+			own_udp = u != INVALID_SOCKET;
+			peer_udp = p;
+			peer_known = own_udp && pl == sizeof(p);
+		}
+		if (u != INVALID_SOCKET)
+		{
+			DWORD t = 200;
+			setsockopt(u, SOL_SOCKET, SO_RCVTIMEO, (const char*)&t, sizeof(t));
+			udp_thread = std::thread([this]() { udp_loop(); });
+		}
 	}
-	~TcpLink() override { close(); }
+	~TcpLink() override
+	{
+		close();
+		if (udp_thread.joinable())
+			udp_thread.join();
+		if (own_udp && u != INVALID_SOCKET)
+			closesocket(u);
+	}
+
+	void udp_loop()
+	{
+		std::vector<char> buf(65536);
+		while (open)
+		{
+			sockaddr_in from = {};
+			int fl = sizeof(from);
+			int n = recvfrom(u, buf.data(), (int)buf.size(), 0, (sockaddr*)&from, &fl);
+			if (n < 3 || *(u16*)buf.data() != UDP_MAGIC)
+				continue;
+			if (from.sin_addr.s_addr != peer_ip)
+				continue;
+			{
+				std::lock_guard<std::mutex> g(udp_lock);
+				peer_udp = from;
+				peer_known = true;
+			}
+			heard_udp = now_ms();
+			if (buf[2] == 0)
+			{
+				// a probe: answered, so the partner knows its datagrams come through
+				if (n == 3 || buf[3] == 0)
+					send_udp(std::string(1, '\0') + std::string(1, '\1'));
+				continue;
+			}
+			if (side)
+				side(std::string(buf.data() + 2, n - 2));
+		}
+	}
+
+	bool send_udp(const std::string& f)
+	{
+		sockaddr_in to;
+		{
+			std::lock_guard<std::mutex> g(udp_lock);
+			if (!peer_known)
+				return false;
+			to = peer_udp;
+		}
+		std::string d((const char*)&UDP_MAGIC, 2);
+		d += f;
+		return sendto(u, d.data(), (int)d.size(), 0, (sockaddr*)&to, sizeof(to)) == (int)d.size();
+	}
+
+	bool udp_alive() const { return u != INVALID_SOCKET && now_ms() - heard_udp < UDP_ALIVE_MS; }
+
+	bool send_fast(const std::string& f) override
+	{
+		if (f.size() + 2 <= UDP_MAX && udp_alive() && send_udp(f))
+			return true;
+		return send(f);
+	}
+
+	// write what is waiting while the socket takes it, a piece at a time
+	bool write_out()
+	{
+		while (out_off < out.size())
+		{
+			fd_set w;
+			FD_ZERO(&w);
+			FD_SET(s, &w);
+			timeval tv = {0, 0};
+			if (select(0, nullptr, &w, nullptr, &tv) <= 0)
+				break;
+			int n = ::send(s, out.data() + out_off, (int)std::min(TCP_PIECE, out.size() - out_off), 0);
+			if (n <= 0)
+				return false;
+			out_off += n;
+		}
+		if (out_off >= out.size())
+		{
+			out.clear();
+			out_off = 0;
+		}
+		else if (out_off > (1u << 20))
+		{
+			out.erase(0, out_off);
+			out_off = 0;
+		}
+		return true;
+	}
+
+	bool tick() override
+	{
+		// the guest asks for the UDP side until the host answers (the host answers each probe)
+		if (own_udp && peer_known && !udp_alive() && now_ms() >= next_probe)
+		{
+			next_probe = now_ms() + 500;
+			send_udp(std::string(1, '\0'));
+		}
+		std::lock_guard<std::mutex> g(send_lock);
+		return s != INVALID_SOCKET && write_out();
+	}
 
 	bool send(const std::string& f) override
 	{
 		std::lock_guard<std::mutex> g(send_lock);
+		if (s == INVALID_SOCKET)
+			return false;
 		u32 len = (u32)f.size();
-		std::string buf((const char*)&len, 4);
-		buf += f;
-		size_t off = 0;
-		while (off < buf.size())
-		{
-			int n = ::send(s, buf.data() + off, (int)(buf.size() - off), 0);
-			if (n <= 0)
-				return false;
-			off += n;
-		}
-		return true;
+		out.append((const char*)&len, 4);
+		out += f;
+		return write_out();
+	}
+
+	std::string status() override
+	{
+		std::lock_guard<std::mutex> g(send_lock);
+		char b[128];
+		xr_sprintf(b, "tcp waiting %u KB, udp %s", u32((out.size() - out_off) / 1024), udp_alive() ? "on" : "off");
+		return b;
 	}
 
 	bool read_exact(char* p, size_t n)
@@ -211,6 +356,7 @@ struct TcpLink : Link
 
 	void close() override
 	{
+		open = false;
 		SOCKET old = s;
 		s = INVALID_SOCKET;
 		if (old != INVALID_SOCKET)
@@ -231,6 +377,7 @@ struct Bridge
 	std::string state_text = "idle";
 
 	SOCKET listener = INVALID_SOCKET;
+	SOCKET udp_listener = INVALID_SOCKET; // r20: the host's UDP side, on the same port
 	std::shared_ptr<Link> link;
 	std::thread net_thread;
 	bool steam = false;
@@ -663,6 +810,7 @@ struct Bridge
 			resume_sent = false;
 			rtt = 0;
 		}
+		l->side = [this](const std::string& f) { if (!f.empty()) handle(f); };
 		l->send(frame(MsgHello, std::string(PROTOCOL) + "|" + recode(my_name, 1251, CP_UTF8) + "|" + version + "|" + ENGINE_REVISION));
 
 		// the only thread that writes to the link: a slow network delays it, not the game
@@ -1273,6 +1421,12 @@ struct Bridge
 			}
 			if (link)
 				link->close();
+			if (udp_listener != INVALID_SOCKET)
+			{
+				// (after the link closed: its UDP thread stops on its next 200 ms timeout)
+				closesocket(udp_listener);
+				udp_listener = INVALID_SOCKET;
+			}
 		}
 		wake_send.notify_all();
 		if (net_thread.joinable())
@@ -1329,6 +1483,14 @@ bool host(int port, LPCSTR name, LPCSTR version)
 		return false;
 	}
 	b.listener = s;
+	// the UDP side on the same port (not there: everything goes by TCP)
+	SOCKET us = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (us != INVALID_SOCKET && bind(us, (sockaddr*)&a, sizeof(a)) != 0)
+	{
+		closesocket(us);
+		us = INVALID_SOCKET;
+	}
+	b.udp_listener = us;
 	b.state_text = "listening";
 	b.log("hosting on port " + std::to_string(port));
 	b.net_thread = std::thread([&b, s]()
@@ -1339,7 +1501,7 @@ bool host(int port, LPCSTR name, LPCSTR version)
 			if (c == INVALID_SOCKET)
 				break;
 			// one partner at a time: a second one waits until the first leaves
-			b.run(std::make_shared<TcpLink>(c));
+			b.run(std::make_shared<TcpLink>(c, b.udp_listener));
 		}
 	});
 	return true;
@@ -1359,19 +1521,47 @@ bool join(LPCSTR address, int port, LPCSTR name, LPCSTR version)
 			addrinfo hints = {}, *res = nullptr;
 			hints.ai_family = AF_INET;
 			hints.ai_socktype = SOCK_STREAM;
+			// (r20) why it did not connect, for the menu: the guest saw only "connecting" whatever went wrong
+			std::string why;
 			if (getaddrinfo(addr.c_str(), std::to_string(port).c_str(), &hints, &res) == 0 && res)
 			{
 				SOCKET c = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 				if (c != INVALID_SOCKET && connect(c, res->ai_addr, (int)res->ai_addrlen) == 0)
 				{
 					freeaddrinfo(res);
-					b.run(std::make_shared<TcpLink>(c));
+					{
+						std::lock_guard<std::mutex> g(b.m);
+						b.state_text = "connecting";
+					}
+					b.run(std::make_shared<TcpLink>(c, INVALID_SOCKET));
 					res = nullptr;
 				}
-				else if (c != INVALID_SOCKET)
-					closesocket(c);
+				else
+				{
+					int e = WSAGetLastError();
+					if (c != INVALID_SOCKET)
+						closesocket(c);
+					if (e == WSAECONNREFUSED)
+						why = "адрес отвечает, но игра хоста не ждёт на порту " + std::to_string(port) + ": хост ещё не нажал «Создать по IP» или порт другой";
+					else if (e == WSAETIMEDOUT)
+						why = "нет ответа от " + addr + ": у кого-то не подключён Radmin VPN (или другая сеть), или брандмауэр хоста не пускает игру";
+					else if (e == WSAENETUNREACH || e == WSAEHOSTUNREACH)
+						why = "сеть до " + addr + " недоступна: проверьте, что Radmin VPN (или другая сеть) подключён у обоих";
+					else
+						why = "ошибка сети " + std::to_string(e);
+				}
 				if (res)
 					freeaddrinfo(res);
+			}
+			else
+				why = "адрес «" + addr + "» не найден: проверьте, что он введён верно";
+			if (!why.empty() && b.running)
+			{
+				{
+					std::lock_guard<std::mutex> g(b.m);
+					b.state_text = "connecting|" + why;
+				}
+				b.log("join failed: " + why);
 			}
 			// reconnect: the host may not be up yet, or the link broke
 			for (int i = 0; i < 30 && b.running; i++)
@@ -1517,6 +1707,20 @@ void game_out(LPCSTR text)
 }
 
 LPCSTR game_in() { return bridge().running ? bridge().game_in() : nullptr; }
+
+// r20: the carrier's own view of the link ("" with none): the tests check the UDP side with it
+LPCSTR net_status()
+{
+	Bridge& b = bridge();
+	static string512 out;
+	std::shared_ptr<Link> l;
+	{
+		std::lock_guard<std::mutex> g(b.m);
+		l = b.link;
+	}
+	xr_strcpy(out, l ? l->status().c_str() : "");
+	return out;
+}
 
 LPCSTR status()
 {
