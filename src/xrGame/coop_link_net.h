@@ -18,6 +18,8 @@ struct Link
 	virtual bool send(const std::string& frame) = 0;
 	// a frame the next one replaces (where the player is): may be lost, never waits behind the others
 	virtual bool send_fast(const std::string& frame) { return send(frame); }
+	// called by the sender all the time: a carrier that holds frames back gives out more of them (false = gone)
+	virtual bool tick() { return true; }
 	virtual bool receive(std::string& frame) = 0; // blocks; false = gone
 	virtual void close() = 0;
 	// why it went, for the player ("" when it just closed)

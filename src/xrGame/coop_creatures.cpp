@@ -181,6 +181,8 @@ void collect(std::string& out, u32 now)
 		it = t - it->second > 60000 ? died.erase(it) : ++it;
 }
 
+size_t record_size() { return sizeof(Record); }
+
 void apply(const std::string& payload)
 {
 	if (!g_pGameLevel || !g_actor || payload.size() < 4)

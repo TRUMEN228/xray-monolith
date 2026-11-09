@@ -34,7 +34,10 @@ const int Channel = 0;
 const int SendUnreliableNoNagle = 1 | 32;
 const int FastChannel = 1;
 const size_t FastMax = 1100; // one packet
-const size_t Piece = 60000; // a frame goes in pieces: header byte 0 whole, 1 part, 2 last
+// (r20) reliable pieces are given to Steam only while its queue holds less than this: what is sent in order (a save
+// for the guest above all) never stands between the movement and the wire for longer than this takes to go out
+const int BulkWindow = 32 * 1024;
+const size_t Piece = 16000; // a frame goes in pieces: header byte 0 whole, 1 part, 2 last
 
 struct CallbackMsg
 {
@@ -286,24 +289,66 @@ struct SteamLink : coop_link::Link
 		return r == 1 || r == 25 || r == 3; // a full queue or no session yet: this one is just lost
 	}
 
-	bool send(const std::string& f) override
+	std::mutex bulk_m;
+	std::deque<std::string> bulk; // reliable pieces in order, not given to Steam yet
+
+	int steam_queued()
 	{
-		if (closed)
-			return false;
-		if (f.size() <= Piece)
-			return send_piece(std::string(1, '\0') + f);
-		for (size_t off = 0; off < f.size(); off += Piece)
+		if (!api.GetSessionConnectionInfo)
+			return 0;
+		struct
 		{
-			size_t n = std::min(Piece, f.size() - off);
-			std::string piece(1, (char)(off + n >= f.size() ? 2 : 1));
-			piece.append(f, off, n);
-			if (!send_piece(piece))
+			int state, ping;
+			float f[6];
+			int send_rate, pending_unreliable, pending_reliable, sent_unacked;
+			long long queue_usec;
+			unsigned reserved[16];
+		} st = {};
+		static char info[4096];
+		Identity id(peer);
+		if (api.GetSessionConnectionInfo(msgs, id.raw, info, &st) <= 0)
+			return 0;
+		return st.pending_reliable + st.pending_unreliable;
+	}
+
+	// give Steam the next pieces while its queue is short
+	bool flush()
+	{
+		std::lock_guard<std::mutex> g(bulk_m);
+		while (!bulk.empty() && !closed)
+		{
+			if (bulk.front().size() > 1024 && steam_queued() > BulkWindow)
+				return true; // (small frames go at once; big pieces wait for the queue)
+			if (!send_piece(bulk.front()))
 			{
 				reason = "Steam не доставил сообщение";
 				return false;
 			}
+			bulk.pop_front();
 		}
-		return true;
+		return !closed;
+	}
+
+	bool tick() override { return flush(); }
+
+	bool send(const std::string& f) override
+	{
+		if (closed)
+			return false;
+		{
+			std::lock_guard<std::mutex> g(bulk_m);
+			if (f.size() <= Piece)
+				bulk.push_back(std::string(1, '\0') + f);
+			else
+				for (size_t off = 0; off < f.size(); off += Piece)
+				{
+					size_t n = std::min(Piece, f.size() - off);
+					std::string piece(1, (char)(off + n >= f.size() ? 2 : 1));
+					piece.append(f, off, n);
+					bulk.push_back(piece);
+				}
+		}
+		return flush();
 	}
 
 	bool receive(std::string& f) override

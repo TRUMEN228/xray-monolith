@@ -65,7 +65,8 @@ const float TRAVEL_FAR = 100.f;      // a load this far from the last place, on 
 const float JUMP_FAR = 60.f;         // a move this far within a second, without a load (the PDA's travel)
 const u64 SAVE_RETRY_MS = 2500, SAVE_GIVE_UP_MS = 10000;
 const u64 LOST_KICK_MS = 8000;       // the host gone this long: the guest's game ends
-const u64 CREATURES_MS = 200;        // the host's creatures go to the guest 5 times per second
+const u64 CREATURES_MS = 100;        // the host's creatures go to the guest 10 times per second (r20: unreliable, in packets)
+const size_t CREATURES_PER_FRAME = 35; // records in one creatures frame: it fits one packet
 
 // where this game is: the main menu, a level that is loading, or a game
 std::string where_now()
@@ -298,8 +299,10 @@ struct Bridge
 	u64 load_at = 0;
 	bool hosted = false;               // this game runs the host's world (the session loaded it)
 	u64 lost_since = 0;
-	// the host's creatures (coop_creatures): the newest frame that came, for the game's thread
-	std::string creatures_in;
+	// the host's creatures (coop_creatures): all the frames that came since the last frame of the game (r20: each
+	// is a part of a snapshot, any may be lost)
+	std::vector<std::string> creatures_in;
+	std::vector<std::string> creatures_out; // host: the newest snapshot's frames not yet sent (sent on the fast way)
 	bool creatures_new = false;
 	std::string world_in;              // the host's newest time and weather (coop_clock)
 	std::deque<std::string> news_in;   // the partner's PDA messages (coop_news)
@@ -541,7 +544,9 @@ struct Bridge
 				break;
 			}
 		case MsgCreatures:
-			creatures_in = body;
+			creatures_in.push_back(body);
+			if (creatures_in.size() > 60)
+				creatures_in.erase(creatures_in.begin());
 			creatures_new = true;
 			break;
 		case MsgItems:
@@ -653,6 +658,7 @@ struct Bridge
 			link = l;
 			outbox.clear();
 			partner_out.clear();
+			creatures_out.clear();
 			pending_state.clear();
 			resume_sent = false;
 			rtt = 0;
@@ -666,17 +672,19 @@ struct Bridge
 			while (running)
 			{
 				std::string f, fast;
+				std::vector<std::string> fast_more;
 				std::deque<std::string> batch;
 				{
 					std::unique_lock<std::mutex> g(m);
 					// (r19: no wait while there is something to send - one frame per 5 ms let the host's queue grow
 					// without end, and the partner's movement came seconds late)
-					if (outbox.empty() && partner_out.empty())
+					if (outbox.empty() && partner_out.empty() && creatures_out.empty())
 						wake_send.wait_for(g, std::chrono::milliseconds(5));
 					if (link != l)
 						return;
 					u64 now = now_ms();
 					fast.swap(partner_out);
+					fast_more.swap(creatures_out);
 					if (!outbox.empty())
 						batch.swap(outbox);
 					else if (now - last_ping >= 3000)
@@ -696,7 +704,14 @@ struct Bridge
 					}
 				}
 				u64 sent_at = now_ms();
+				// the movement first and on the fast way (r20: the creatures too); then the rest in order, which a
+				// Steam link gives out only as fast as its queue empties (a save never holds the movement back)
 				bool ok = fast.empty() || l->send_fast(fast);
+				for (auto& c : fast_more)
+					if (ok)
+						ok = l->send_fast(c);
+				if (ok)
+					ok = l->tick();
 				for (auto& b : batch)
 					if (ok)
 						ok = l->send(b);
@@ -714,6 +729,8 @@ struct Bridge
 						}
 					};
 					count(fast);
+					for (auto& c : fast_more)
+						count(c);
 					for (auto& b : batch)
 						count(b);
 					count(f);
@@ -746,6 +763,7 @@ struct Bridge
 			pending_state.clear();
 			outbox.clear();
 			partner_out.clear();
+			creatures_out.clear();
 			rtt = 0;
 			state_text = role == "host" ? "listening" : "connecting";
 			if (was)
@@ -858,8 +876,8 @@ struct Bridge
 		std::string kick_why, before_load, sent_mode;
 		bool came_up = where == "game" && my_where != "game";
 		bool host_role, send_creatures = false, link_up, items_linked = false, news_linked = false;
-		std::string creatures, world;
-		std::vector<std::string> partner;
+		std::string world;
+		std::vector<std::string> partner, creatures;
 		std::deque<std::string> items, news, props;
 		{
 			std::lock_guard<std::mutex> g(m);
@@ -1084,8 +1102,26 @@ struct Bridge
 			{
 				std::string out;
 				coop_creatures::collect(out, Device.dwTimeGlobal);
+				// cut into frames of whole records, each with the snapshot's stamp: one lost packet loses only
+				// its creatures' step, never holds the rest back
+				size_t rs = coop_creatures::record_size(), step = rs * CREATURES_PER_FRAME;
+				std::vector<std::string> frames;
+				if (out.size() >= 4)
+				{
+					std::string stamp = out.substr(0, 4);
+					for (size_t off = 4; off < out.size() || off == 4; off += step)
+					{
+						frames.push_back(frame(MsgCreatures, stamp + out.substr(off, std::min(step, out.size() - off))));
+						if (off + step >= out.size())
+							break;
+					}
+				}
 				std::lock_guard<std::mutex> g(m);
-				queue(MsgCreatures, out);
+				if (link)
+				{
+					creatures_out.swap(frames);
+					wake_send.notify_one();
+				}
 			}
 			// where each player is: both ways while both are in a game; the partner's puppet moves at once
 			std::string here;
@@ -1133,8 +1169,8 @@ struct Bridge
 				coop_clock::apply(world);
 			if (!host_role)
 			{
-				if (!creatures.empty())
-					coop_creatures::apply(creatures);
+				for (auto& c : creatures)
+					coop_creatures::apply(c);
 				if (!link_up)
 					coop_creatures::release_all();
 				coop_creatures::update(Device.dwTimeGlobal);

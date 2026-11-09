@@ -14,6 +14,8 @@ namespace coop_creatures
 {
 // host: the creatures near either player as one frame's payload
 void collect(std::string& out, u32 now);
+// r20: the bytes of one creature's record (a frame is the u32 stamp and whole records: it may be cut between them)
+size_t record_size();
 // guest: the host's creatures as they came (the game's thread)
 void apply(const std::string& payload);
 // guest: copies the host stopped sending go back to their own AI; all of them when the link is gone
