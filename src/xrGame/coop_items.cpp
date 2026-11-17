@@ -364,6 +364,12 @@ u16 make_copy(const std::string& section, const std::string& state, u16 parent, 
 		u16 state_size = 0;
 		in.r_u16(state_size);
 		IPureServerObject* s = smart_cast<IPureServerObject*>(item);
+		// (r21) a state longer than what came is not read: the packet's reads do not check their bounds
+		if (s && 2u + state_size > n)
+		{
+			trace("!", "copy " + section + ": state of " + std::to_string(state_size) + " bytes in " + std::to_string(n));
+			s = nullptr;
+		}
 		if (s)
 		{
 			s->STATE_Read(in, state_size);
@@ -450,6 +456,9 @@ std::string state_hex(CSE_Abstract* se)
 	state.B.count = update.B.count = both.B.count = 0;
 	s->STATE_Write(state);
 	s->UPDATE_Write(update);
+	// (r21) what does not fit one packet is not sent (the partner could not read it either)
+	if (2u + state.B.count + update.B.count > NET_PacketSizeLimit)
+		return "";
 	both.w_u16((u16)state.B.count);
 	both.w(state.B.data, state.B.count);
 	both.w(update.B.data, update.B.count);

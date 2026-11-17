@@ -337,6 +337,12 @@ struct SteamLink : coop_link::Link
 			return false;
 		{
 			std::lock_guard<std::mutex> g(bulk_m);
+			// (r21) a partner that has not taken 256 MB is gone
+			if (bulk.size() * Piece > (256u << 20))
+			{
+				reason = "напарник не принимает данные";
+				return false;
+			}
 			if (f.size() <= Piece)
 				bulk.push_back(std::string(1, '\0') + f);
 			else

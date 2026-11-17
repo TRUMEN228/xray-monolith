@@ -103,6 +103,9 @@ void apply(const std::string& line)
 	CALifeTimeManager& tm = const_cast<CALifeTimeManager&>(ai().alife().time_manager());
 	ALife::_TIME_ID host_time = (ALife::_TIME_ID)_strtoui64(f[0].c_str(), nullptr, 10);
 	float factor = (float)atof(f[1].c_str());
+	// (r21) a pace that is not a number, or far beyond any the game uses, is not taken
+	if (!_valid(factor) || factor > 1000.f)
+		factor = 0.f;
 	s64 diff = (s64)host_time - (s64)tm.game_time();
 	if (host_time && (diff > OFF_MS || diff < -OFF_MS))
 		tm.set_game_time(host_time);

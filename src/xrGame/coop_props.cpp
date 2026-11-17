@@ -490,7 +490,7 @@ void receive(bool host, const std::string& line)
 	{
 		// the host's creatures for the guest's mirror
 		if (!host)
-			call("coop_mirror.engine_census", line.substr(7).c_str());
+			call("coop_mirror.engine_census", line.size() > 7 ? line.substr(7).c_str() : "");
 	}
 	else if (kind == "phit" && a.size() >= 9)
 	{
@@ -506,7 +506,7 @@ void receive(bool host, const std::string& line)
 	else if (kind == "hit")
 	{
 		if (host)
-			coop_partner::hit_in(line.substr(4));
+			coop_partner::hit_in(line.size() > 4 ? line.substr(4) : std::string());
 	}
 	else if (kind == "money" && a.size() >= 2)
 	{

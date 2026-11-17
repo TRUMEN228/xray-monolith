@@ -117,6 +117,9 @@ void apply(const std::string& line, bool scripts)
 	if (o)
 	{
 		Fvector p = {(float)atof(m[1].c_str()), (float)atof(m[2].c_str()), (float)atof(m[3].c_str())};
+		// (r21) not a place: the puppet stays where it is
+		if (!_valid(p.x) || !_valid(p.y) || !_valid(p.z) || _abs(p.x) > 1e5f || _abs(p.y) > 1e5f || _abs(p.z) > 1e5f)
+			return;
 		u32 stamp = (u32)strtoul(m[7].c_str(), nullptr, 10);
 		Fvector ang, look;
 		if (CActor* actor = smart_cast<CActor*>(o))

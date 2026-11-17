@@ -198,6 +198,9 @@ void apply(const std::string& payload)
 		if (!m || m->getDestroy() || sect_crc(m) != r.sect)
 			continue;
 		Fvector pos = {r.x, r.y, r.z};
+		// (r21) a position that is not a number would put the copy nowhere (and the physics with it)
+		if (!_valid(pos.x) || !_valid(pos.y) || !_valid(pos.z) || _abs(pos.x) > 1e5f || _abs(pos.y) > 1e5f || _abs(pos.z) > 1e5f)
+			continue;
 		if (r.flags & FLAG_DEAD)
 		{
 			if (m->g_Alive())
@@ -312,6 +315,12 @@ void clear_map()
 {
 	h2g.clear();
 	g2h.clear();
+	// (r21) a load: the last level's copies, targets, bodies and puppet are gone with it (their ids are reused);
+	// the scripts tell the new puppet again
+	copies.clear();
+	targets.clear();
+	bodies.clear();
+	partner = NONE;
 }
 u16 local_id_of(u16 hid) { return local_id(hid); }
 u16 host_id(u16 id)

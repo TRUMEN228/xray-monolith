@@ -39,6 +39,7 @@
 #include <string>
 #include <chrono>
 #include <memory>
+#include <fstream>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -55,7 +56,7 @@ namespace
 // 14 (r18): spawns and removals from the simulation's registry (spawn, sqm, unreg), story flags (info), trades
 // (tbuy, tsell), the talk (dlg, dlgopts, dlgpick, dlgswitch, dlgend)
 const char* PROTOCOL = "14";
-const char* ENGINE_REVISION = "20"; // coop_engine_version(), told to the partner in the hello
+const char* ENGINE_REVISION = "21"; // coop_engine_version(), told to the partner in the hello
 enum : u8 { MsgHello = 1, MsgState = 2, MsgEvent = 3, MsgFile = 4, MsgPing = 5, MsgStateZ = 6, MsgPong = 7, MsgPresence = 8, MsgCreatures = 9, MsgItems = 10, MsgWorld = 11, MsgNews = 12, MsgPartner = 13, MsgProps = 14 };
 
 const u64 HOST_SETTLE_MS = 5000;     // the host's game runs this long on a level before its world goes anywhere
@@ -167,7 +168,7 @@ const size_t TCP_PIECE = 16 * 1024;
 
 struct TcpLink : Link
 {
-	SOCKET s;
+	std::atomic<SOCKET> s; // (r21) closed once, by whoever comes first (the sender, stop(), a version mismatch)
 	std::mutex send_lock;
 	std::string out;                // TCP bytes not written yet
 	size_t out_off = 0;
@@ -318,6 +319,12 @@ struct TcpLink : Link
 		std::lock_guard<std::mutex> g(send_lock);
 		if (s == INVALID_SOCKET)
 			return false;
+		// (r21) a partner that has not read 256 MB is gone, whatever its socket says
+		if (out.size() - out_off > (256u << 20))
+		{
+			Msg("! coop link: the partner does not read (256 MB waiting): the link closes");
+			return false;
+		}
 		u32 len = (u32)f.size();
 		out.append((const char*)&len, 4);
 		out += f;
@@ -357,8 +364,7 @@ struct TcpLink : Link
 	void close() override
 	{
 		open = false;
-		SOCKET old = s;
-		s = INVALID_SOCKET;
+		SOCKET old = s.exchange(INVALID_SOCKET);
 		if (old != INVALID_SOCKET)
 		{
 			shutdown(old, SD_BOTH);
@@ -610,27 +616,60 @@ struct Bridge
 	}
 
 	// mode: "join" (a guest in its menu loads it), "reload" (both load it), "guest" (the guest loads it)
+	// (r21) the files are read on a thread of their own (tens of MB: the game's frame and the link waited for them),
+	// then queued in order with the word that they are all there; two saves sent at once go one after the other
+	std::mutex save_lock;
 	void send_save(const std::string& name, const std::string& mode) // under m
 	{
+		std::vector<std::pair<std::string, std::string>> files; // name in the save folder, full path
 		for (LPCSTR ext : {".scop", ".scoc", ".dds"})
 		{
 			std::string file = name + ext;
-			IReader* r = FS.r_open("$game_saves$", file.c_str());
-			if (!r)
-				continue;
-			u32 len = (u32)file.size();
-			std::string payload((const char*)&len, 4);
-			payload += file;
-			payload.append((const char*)r->pointer(), r->length());
-			FS.r_close(r);
-			queue(MsgFile, payload);
+			string_path full;
+			FS.update_path(full, "$game_saves$", file.c_str());
+			if (GetFileAttributesA(full) != INVALID_FILE_ATTRIBUTES)
+				files.emplace_back(file, full);
 		}
 		char token[16];
 		xr_sprintf(token, "%08x%04x", (u32)now_ms(), (u32)rand() & 0xffff);
 		session_token = token;
-		queue(MsgEvent, "session_ready|" + session_token + "|" + mode + "|" + name);
-		note("Сейв «" + utf8(name) + "» отправлен напарнику");
-		log("world " + name + " sent (" + mode + ")");
+		std::string tok = token;
+		std::shared_ptr<Link> l = link;
+		std::thread([this, name, mode, files, tok, l]()
+		{
+			std::lock_guard<std::mutex> sl(save_lock);
+			std::vector<std::string> payloads;
+			for (auto& f : files)
+			{
+				std::ifstream in(f.second, std::ios::binary);
+				if (!in)
+					continue;
+				u32 len = (u32)f.first.size();
+				std::string payload((const char*)&len, 4);
+				payload += f.first;
+				payload.append(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+				payloads.push_back(std::move(payload));
+			}
+			std::lock_guard<std::mutex> g(m);
+			if (!running || link != l)
+				return; // the partner went meanwhile
+			for (auto& p : payloads)
+				queue(MsgFile, p);
+			queue(MsgEvent, "session_ready|" + tok + "|" + mode + "|" + name);
+			note("Сейв «" + utf8(name) + "» отправлен напарнику");
+			log("world " + name + " sent (" + mode + ")");
+		}).detach();
+	}
+
+	// (r21) what came and the game has not taken yet (it is loading, or hangs) stays within a limit: the oldest go
+	static void cap(std::deque<std::string>& q, LPCSTR what)
+	{
+		const size_t MAX = 4096;
+		if (q.size() <= MAX)
+			return;
+		size_t extra = q.size() - MAX;
+		q.erase(q.begin(), q.begin() + extra);
+		Msg("! coop link: %u %s frames dropped (the game did not take them)", (u32)extra, what);
 	}
 
 	// ---------------------------------------------------------------- the partner's side
@@ -655,6 +694,15 @@ struct Bridge
 				if (p[0] != PROTOCOL)
 				{
 					note("Версии не совпадают: у вас протокол " + std::string(PROTOCOL) + ", у напарника " + p[0] + ". Обновитесь оба.");
+					if (link)
+						link->close();
+					return;
+				}
+				// (r21) the same engine on both sides: the protocol stays while the engines change what they send
+				if (p.size() > 3 && p[3] != ENGINE_REVISION)
+				{
+					note("Движки не совпадают: у вас Co-op Engine " + std::string(ENGINE_REVISION) + ", у напарника " + p[3] +
+						". Обновитесь оба.");
 					if (link)
 						link->close();
 					return;
@@ -701,6 +749,7 @@ struct Bridge
 			break;
 		case MsgItems:
 			items_in.push_back(body);
+			cap(items_in, "items");
 			break;
 		case MsgWorld:
 			world_in = body;
@@ -708,6 +757,7 @@ struct Bridge
 			break;
 		case MsgNews:
 			news_in.push_back(body);
+			cap(news_in, "news");
 			break;
 		case MsgPartner:
 			partner_in.push_back(body);
@@ -717,6 +767,7 @@ struct Bridge
 			break;
 		case MsgProps:
 			props_in.push_back(body);
+			cap(props_in, "props");
 			break;
 		case MsgState:
 			for (auto& line : split(body, '\n'))
@@ -1033,6 +1084,24 @@ struct Bridge
 			Msg("~ coop net: %s", out.c_str());
 	}
 
+	// (r21) a frame from the partner that breaks its reader (a short or broken line) is dropped, not the game
+	template <typename F>
+	void guard(LPCSTR what, F&& f)
+	{
+		try
+		{
+			f();
+		}
+		catch (const std::exception& e)
+		{
+			Msg("! coop link: a %s frame dropped (%s)", what, e.what());
+		}
+		catch (...)
+		{
+			Msg("! coop link: a %s frame dropped", what);
+		}
+	}
+
 	void session_frame()
 	{
 		if (!running)
@@ -1257,7 +1326,7 @@ struct Bridge
 		if (where == "game")
 		{
 			for (auto& line : items)
-				coop_items::receive(host_role, line);
+				guard("items", [&] { coop_items::receive(host_role, line); });
 			std::vector<std::string> moves;
 			coop_items::frame(host_role, items_linked, moves);
 			if (!moves.empty())
@@ -1304,10 +1373,10 @@ struct Bridge
 			}
 			// every position that came (several may come together): the puppet's buffer gets them all
 			for (size_t i = 0; i < partner.size(); i++)
-				coop_partner::apply(partner[i], i + 1 == partner.size());
+				guard("partner", [&] { coop_partner::apply(partner[i], i + 1 == partner.size()); });
 			// money, hits and the world's physical things
 			for (auto& line : props)
-				coop_props::receive(host_role, line);
+				guard("props", [&] { coop_props::receive(host_role, line); });
 			std::vector<std::string> changes;
 			coop_props::frame(host_role, items_linked, news_linked, changes);
 			if (!changes.empty())
@@ -1317,7 +1386,7 @@ struct Bridge
 					queue(MsgProps, line);
 			}
 			for (auto& line : news)
-				coop_news::receive(line);
+				guard("news", [&] { coop_news::receive(line); });
 			std::vector<std::string> said;
 			coop_news::frame(news_linked, said);
 			if (!said.empty())
@@ -1334,11 +1403,11 @@ struct Bridge
 				queue(MsgWorld, clock);
 			}
 			if (!host_role && !world.empty())
-				coop_clock::apply(world);
+				guard("clock", [&] { coop_clock::apply(world); });
 			if (!host_role)
 			{
 				for (auto& c : creatures)
-					coop_creatures::apply(c);
+					guard("creatures", [&] { coop_creatures::apply(c); });
 				if (!link_up)
 					coop_creatures::release_all();
 				coop_creatures::update(Device.dwTimeGlobal);
@@ -1411,6 +1480,13 @@ struct Bridge
 		props_in.clear();
 		partner_in.clear();
 		partner_new = false;
+		// (r21) nothing of the last session's frames goes out or is played in the new one
+		creatures_in.clear();
+		creatures_new = false;
+		creatures_out.clear();
+		partner_out.clear();
+		outbox.clear();
+		pending_state.clear();
 		coop_items::set_note([this](const std::string& s)
 		{
 			std::lock_guard<std::mutex> g(m);
@@ -1627,6 +1703,9 @@ bool host_steam(LPCSTR name, LPCSTR version)
 			{
 				std::lock_guard<std::mutex> g(b.m);
 				busy = !b.running || b.link != nullptr;
+				// (r21) taken here, under the lock: a second peer arriving at the same moment finds it busy
+				if (!busy)
+					b.link = l;
 			}
 			if (busy)
 				l->close();
